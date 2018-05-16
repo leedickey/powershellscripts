@@ -4,13 +4,19 @@ Performs multiple tasks for the SharePoint Farm via a menu.
 .DESCRIPTION
 Changes account passwords using the provided CSV (inputfile), restarts the farm and other tasks.
 .EXAMPLE
-.\SharePoint2016Tasks.ps1 -inputFile "yourfile.csv" 
+.\SharePoint2016Tasks.ps1 
 
 .NOTES
 Author: Lee Dickey (Lee.A.Dickey@uscg.mil) x2673
-Date: 13 June 2017
-Version: 2.1
+Date: 07 May 2018
+Version: 3.0
 
+V 3.0 05/07/2018
+		- Added commands to encrypt and decrypt the Accounts.csv file.
+			* Only the user that encrypted the file can read and decrypt it.
+		- Add new commands to list the App Pools and Windows services that will be affected by the scripts other commands
+		- Added more details to the .Requirements for firewall permissions, WinRM activation, and PowerShell features
+		- Removed outdated and no longer used functions 
 
 V 2.1 06/13/2017:
 
@@ -60,16 +66,24 @@ V 1.0:
 		-	Will change passwords for App Pools and Windows Services on each server using required csv file (See Parameters)
 		-	(SharePoint) Will display list of SharePoint farm servers and their roles (may need to be configured depending on environment)
 		
-	-	Requirements:
+.REQUIREMENTS
 		-	Powershell 3.0 or higher
 		-	WinRM must be enabled and remote Powershell must also be enabled
-		-	Service Principle Names (SPNs) may be required for your farm depending on the environment
-			-	Special SPNs were required for mine specifying the Powershell port (5985 and 5986 (SSL))
+			- Check if WinRM is running by using this PowerShell command as admin: get-service winrm
+				- If not running, run the following PowerShell command as admin: Enable-PSRemoting –force
+			- Check firewall and make sure the following firewall rules are open on the server using the 'Windows Firewall with Advanced Security'
+				* Windows Remote Management - Compatibility Mode (HttP-IncludePortInSPN)
+				* Window Remote Management (HTPP-In)
+		- The following commands may need to be run on all of the servers running IIS if using 2008 R2 server
+				* Import-Module ServerManager
+				* Add-WindowsFeature Web-Scripting-Tools
+		- 	Run this PowerShell one-time only on the server running this script: Add-WindowsFeature RSAT-AD-PowerShell
+		-	Service Principle Names (SPNs) may be required for your systems depending on the environment
+			-	Special SPNs were required for the Powershell port (5985 and 5986 (SSL))
 				Example: 	setspn -s HTTP/Server-Short-Name-001:5985 Server-Account-Name-01
 							setspn -s HTTP/Server-Long-Name-001-Is-Very-Long-:5985 Server-Account-Name-01
-	
-	-	Please contact me using the contact information above to inquire about functionality or to submit 
-		requests. Please submit any improvements or changes so this script can continue to be improved.
+							setspn -s HTTPS/Server-Short-Name-001:5986 Server-Account-Name-01
+							setspn -s HTTPS/Server-Long-Name-001-Is-Very-Long-:5986 Server-Account-Name-01	
 #>
 
 
@@ -152,28 +166,6 @@ $Global:SPServers = $Servers.DisplayName
 }
 GetSharePointServers
 
-#Not currently using this. Originally used when many of the functions were manual
-<# ######################################################
-# Verify farm selection is correct
-######################################################
-function FarmVerify # This may no longer be needed. Verified the server you are on is a part of the farm which was used when this was all manual. 
-{
-cls
-Write-Host "Verifying the current server $env:computername's farm location... "
-Start-Sleep -s 2
-if ($SPServers -notcontains $env:computername) {
- Write-Host "Wrong Farm selected! Exiting Script!" -ForegroundColor Red;
-		Exit
-	}
-Else
-	{Write-Host "Farm Check Successful. Resuming with Tasks.";
-	Start-Sleep -s 2
-	}	
-}
-
- #>
-
- 
 
 ######################################################################
 # Check to verify that remote acccess is possible via Invoke-Command
@@ -1114,6 +1106,128 @@ function ListSharePointServers
 	Write-Host "`n********************************************************"
 	Write-Host "********************************************************`n"
 	}
+	
+	
+
+	#########################################
+# List Affected Windows Services
+#########################################
+function ListAffected-WindowsServices
+{
+#Get List of accounts
+$accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
+
+Write-Host "`nPlease be patient....`n" 
+
+#Loops a list of user accounts to check on each server 
+$passwords = ConvertFrom-Csv $accounts # Acquired from parent function
+$passwords | foreach {
+$username = $_.Username
+
+foreach ($srv in $SPServers)
+    {        
+        #Write-Host "`nChecking for services on $srv`n" -ForegroundColor DarkGreen
+        $SessionOption = New-PSSessionOption -IncludePortInSPN
+        Invoke-Command -ComputerName $srv -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {
+        $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.StartMode -ne "Disabled") )}
+         
+        if($WinServices)
+                {  
+					Write-Host "`n$Using:srv is using the following:" -ForegroundColor Yellow
+					foreach ($srvc in $WinServices)	
+						{
+							$service = $srvc.DisplayName
+							$svc = $srvc.Name
+							Write-Host "`nFound $service using the account $Using:username" -ForeGroundColor Green #-BackgroundColor Green     					                   
+						}
+						
+						Write-Host "`n"						
+                }	
+				
+        else {}
+
+Exit-PSSession		
+
+} -AsJob -JobName ListServz | Out-Null
+}
+wait-job -Name ListServz -Timeout 120 | Out-Null
+Receive-Job -Name ListServz
+Remove-Job ListServz | Out-Null
+}
+}
+
+
+########################################
+# List Affected AppPools
+########################################
+function List-AppPools
+{
+#This may need to be modified to match whichever configuration is being used. This should be assigned as a paramater above
+$accounts = (Import-Csv $InputFile | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
+
+#$accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
+
+
+Write-Host "`nPlease be patient....`n" 
+
+$accounts = ConvertFrom-Csv $accounts 
+$accounts | foreach {
+$username = $_.Username #Pulled from the 'Username' column
+
+#Only uses the Web Servers
+Foreach ($server in $SPServers | Where {$_ -match "WB"})
+{
+
+Try {
+        $SessionOption = New-PSSessionOption -IncludePortInSPN #Forces the port specified in the SPN
+        Invoke-Command -ComputerName $server -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock { #Uses the session created above using the port in the SPN
+        Import-Module WebAdministration
+ 
+		Try 
+			{	
+	        # Pulls the app pool list based on the credentials and whether it is stopped. 
+	        $applicationPools = Get-ChildItem IIS:\AppPools | where { ($_.processModel.userName -eq "$Using:username") }# -and ($_.state -eq "Started") }
+			}
+			
+		Catch 
+			{
+				Write-Host "No App Pools on &Using:server"
+			}	
+		
+	  
+			        if($applicationPools) # Only runs the below process if there are any app pools to run against (if not null)
+				        { 	
+							Write-Host "`n$Using:server is using the following:" -ForegroundColor Yellow
+							
+					        foreach($pool in $applicationPools)
+					           {
+                                    # Many powershell Commandlets and commands do not like variables pulled directly from outside of the invocation
+							        $AppPool = $pool.name 				
+									Write-Host "`nFound $AppPool using the account $Using:username" -ForegroundColor White -BackGroundColor Black								
+						        }
+								
+								Write-Host "`n"
+				        }
+
+			        Else {}
+
+Exit-PSSession
+} -AsJob -JobName ListPoolz | Out-Null
+}
+Catch { Write-Host "Could not invoke a remote command to $server!`n" -ForeGroundColor Red; write-Host $_.Exception.Message }
+} 
+wait-job -Name ListPoolz -Timeout 120 | Out-Null
+Receive-Job -Name ListPoolz
+Remove-Job ListPoolz | Out-Null   
+}
+# Clears or resets variables
+}
+
+
+
+
+
+	
 
 
 	
@@ -1175,32 +1289,36 @@ switch($PTask)
  do {
  
  [int]$Task = 0
- while ($Task -lt 1 -or $Task -gt 14)  {
+ while ($Task -lt 1 -or $Task -gt 18)  {
  cls
  Write-Host  "`n#####  TROUBLE-SHOOTING TASKS  #####" -ForegroundColor Black -BackgroundColor White
  Write-Host  "1.   List SharePoint Servers"
  Write-Host  "2.   Verify Remote Connectivity"
- Write-Host  "3.   Check if Accounts Locked"
- Write-Host  "4.   Start any SharePoint Application Pools that have stopped" 
- Write-Host  "5.   Start any Windows Services that have stopped"
+ Write-Host	 "3.   List Windows Services affected by this script"		
+ Write-Host	 "4.   List IIS App Pools affected by this script"
+ Write-Host  "5.   Check if Accounts Locked"
+ Write-Host  "6.   Start any SharePoint Application Pools that have stopped" 
+ Write-Host  "7.   Start any Windows Services that have stopped"
   
  Write-Host  "`n#####  PASSWORD CHANGE TASKS  #####" -ForegroundColor Black -BackgroundColor White
- Write-Host  "6.   Change Service Account Passwords (SharePoint)"
- Write-Host  "`n     The following task should only be used AFTER option 6 has been completed!" -ForegroundColor Yellow
- Write-Host  "7.   Post Password Change trouble-shooting tasks." 
+ Write-Host  "8.   Change Service Account Passwords (SharePoint)"
+ Write-Host  "9.   Encrypt CSV containing passwords"
+ Write-Host  "10.  Decrypt CSV containing passwords"
+ Write-Host  "`n      The following task should only be used AFTER option 6 has been completed!" -ForegroundColor Yellow
+ Write-Host  "11.  Post Password Change trouble-shooting tasks." 
 
   
  Write-Host  "`n#####  SYSTEM RESTART OPTIONS  #####" -ForegroundColor Black -BackgroundColor White
- Write-Host  "8.   Restart SharePoint Web and Application Servers"
- Write-Host  "9.   Restart SQL Server(s)"
+ Write-Host  "12.  Restart SharePoint Web and Application Servers"
+ Write-Host  "13.  Restart SQL Server(s)"
  
  Write-Host  "`n#####  SHAREPOINT MAINTENANCE TASKS  #####" -ForegroundColor Black -BackgroundColor White
- Write-Host  "10.  Lock SharePoint Site Collections"
- Write-Host  "11.  Unlock SharePoint Site Collections"
- Write-Host  "12.  Stop Timer Services on all SharePoint servers"
- Write-Host  "13.  Start Timer Services on all SharePoint servers"
+ Write-Host  "14.  Lock SharePoint Site Collections"
+ Write-Host  "15.  Unlock SharePoint Site Collections"
+ Write-Host  "16.  Stop Timer Services on all SharePoint servers"
+ Write-Host  "17.  Start Timer Services on all SharePoint servers"
  
- Write-Host "`n14.  Exit this script" -ForeGroundColor Cyan
+ Write-Host "`n18.  Exit this script" -ForeGroundColor Cyan
  
 [int]$Task = Read-Host "`n`nSelect a task to perform on this farm"
 
@@ -1208,20 +1326,24 @@ switch($Task)
 		{	
 			1	{ListSharePointServers; pause}
 			2	{WinRMVerify; pause}
-			3	{Check-LockedOut; pause}
-			4	{Start-AppPools; pause}
-			5	{Check-WindowsServices; pause}
-			6	{ChangeSPServiceAccountPasswords; pause}
-			7	{Post-PasswordChange}
-			8	{RestartFarm}
-			9	{RestartSQL; pause}
-			10	{LockSPSites; pause}
-			11	{UnlockSPSites; pause}
-			12	{StopTimerServices; pause}
-			13	{StartTimerServices;pause}
-			14 	{exit}
+			3	{ListAffected-WindowsServices; pause}
+			4	{List-AppPools; pause}
+			5	{Check-LockedOut; pause}
+			6	{Start-AppPools; pause}
+			7	{Check-WindowsServices; pause}
+			8	{ChangeSPServiceAccountPasswords; pause}
+			9	{Cipher /E $InputFile; pause}
+			10	{Cipher /D $InputFile; pause}
+			11	{Post-PasswordChange}
+			12	{RestartFarm}
+			13	{RestartSQL; pause}
+			14	{LockSPSites; pause}
+			15	{UnlockSPSites; pause}
+			16	{StopTimerServices; pause}
+			17	{StartTimerServices;pause}
+			18 	{exit}
 			default	{Write-Host "Nothing Selected"}
 			
 		}
 	}
-} While ($Task -ne 14)
+} While ($Task -ne 18)

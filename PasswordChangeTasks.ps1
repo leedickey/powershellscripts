@@ -14,34 +14,57 @@ Changes account passwords using the provided CSV (inputfile), restarts the serve
 		-	Will change passwords for App Pools and Windows Services on each server using required csv file (See Parameters)
 		- 	Will restart running Windows Services associated to the service accounts listed in csv file	
 		-	Will recycle / restart IIS AppPools associated to the service accounts listed in the csv file
+		-   Will list the App Pools and Windows services affected by this scripts other functions		
 .REQUIREMENTS
 		-	Powershell 3.0 or higher
 		-	WinRM must be enabled and remote Powershell must also be enabled
+			- Check if WinRM is running by using this PowerShell command as admin: get-service winrm
+				- If not running, run the following PowerShell command as admin: Enable-PSRemoting –force
+			- Check firewall and make sure the following firewall rules are open on the server using the 'Windows Firewall with Advanced Security'
+				* Windows Remote Management - Compatibility Mode (HttP-IncludePortInSPN)
+				* Window Remote Management (HTPP-In)
+		- The following commands may need to be run on all of the servers running IIS if using 2008 R2 server
+				* Import-Module ServerManager
+				* Add-WindowsFeature Web-Scripting-Tools
+		- 	Run this PowerShell one-time only on the server running this script: Add-WindowsFeature RSAT-AD-PowerShell
 		-	Service Principle Names (SPNs) may be required for your systems depending on the environment
-			-	Special SPNs were required for mine specifying the Powershell port (5985 and 5986 (SSL))
+			-	Special SPNs were required for the Powershell port (5985 and 5986 (SSL))
 				Example: 	setspn -s HTTP/Server-Short-Name-001:5985 Server-Account-Name-01
 							setspn -s HTTP/Server-Long-Name-001-Is-Very-Long-:5985 Server-Account-Name-01
+							setspn -s HTTPS/Server-Short-Name-001:5986 Server-Account-Name-01
+							setspn -s HTTPS/Server-Long-Name-001-Is-Very-Long-:5986 Server-Account-Name-01							
 	
 	
 .NOTES
-Author: Lee Dickey 
-Date: 14 June 2017
-Version: 2.0
+Author: Lee Dickey (Lee.A.Dickey@uscg.mil) x2673
+Date: 02 May 2018
+Version: 3.0
 
+KNOWN ISSUES: 	Logging is not currently working properly. A rewrite may be required to NOT write to the screen as the primary
+				output. This is on the to-do list.	
+				
+V 3.0 05/02/2018
+		- Added commands to encrypt and decrypt the Accounts.csv file.
+			* Only the user that encrypted the file can read and decrypt it.
+		- Add new commands to list the App Pools and Windows services that will be affected by the scripts other commands
+		- Added more details to the .Requirements for firewall permissions, WinRM activation, and PowerShell features
+		
+V 2.01 04/30/2018
+		- Corrected varuable naming for Server and SQL Server lists
+				
 V 2.0 06/14/2017
-	
-	2.0 
 		- Text clean-up
-		- Added parrallel processing for many of the functions to spead up password changes
+		- Added parrallel processing for many of the functions to speed up password changes
 		- Added function to restart currently running Windows Services 
 		- Added function to recycle / restart App Pools
 		
 		
 V 1.0 04/27/2017:
-
-	1.0
-		- Initial Release. Password changes for IIS App Pools and Windows Services across the enclave. It can update AD for you as well. Also reboots the enclave and 
-			can restart services and recycle app pools
+		- Initial Release. Password changes for IIS App Pools and Windows Services across the enclave. It can update AD for you as well. 
+			Also reboots the enclave and can restart services and recycle app pools
+			
+To-do: 	 - Add functions to list App Pools and Windows Services that will be affected by a password change.
+		 - Correct logging not working correctly for the purposes of writing a full log file	
 		
 #>
 
@@ -59,10 +82,10 @@ param(
 ########################################################
 
 ## A text file listing the servers in the environment
-$Global:serverlist = "C:\allowed\scripts\serverlist.txt"
+$Global:Serverlist = "C:\allowed\scripts\serverlist.txt"
 
 ## A text file listing of any SQL or database servers
-$Global:SQLServers = "C:\allowed\scripts\SQLserverlist"
+$Global:SQLServerList = "C:\allowed\scripts\SQLserverlist"
 
 ## Location and name of the log file
 $Global:Logfile = "c:\Allowed\Scripts\Log.log"
@@ -82,6 +105,11 @@ If (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 } ###############################################
 
 
+####### Things needed for Windows 2008 R2 ##########
+#Import-Module ServerManager
+#Add-WindowsFeature Web-Scripting-Tools
+Import-Module WebAdministration
+
 
 ##################################################################
 # Getting the server list
@@ -90,17 +118,15 @@ function GetServerList
 {
 # Get list of servers from a predefined list of servers and puts the list into memory as a CSV formatted variable
 #$Global:AppServers = Get-Content -Patch $Appserverlist | ConvertTo-CSV -NoTypeInformation | Select-Object -skip 1 | % {$_ -replace '"',''}) | Out-String
-$Global:Servers = Get-Content -Path $serverlist
+$Global:Servers = Get-Content -Path $Serverlist
 $Global:DBServers = Get-Content -Path $SQLserverlist
 }
 GetServerList
 
 
 
-
-
 ######################################################################
-# Check to verify that remote acccess is possible via Invoke-Command
+# Check to verify that remote access is possible via Invoke-Command
 ######################################################################
 function WinRMVerify
 {
@@ -133,7 +159,6 @@ Receive-Job -Name RMVerifiez
 # Removes the jobs from memory 
 Remove-Job RMVerifiez | Out-Null
 }
-
 
 
 
@@ -248,7 +273,7 @@ $newpwd1 = $_.NewPassword
 $username = $_.Username
 #$newpassword = ConvertTo-SecureString -String $newpwd1 -AsPlainText -Force
 
-Foreach ($server in $Servers)
+Foreach ($server in $Servers | Where {$_ -match "WB"})
 {
 Try {
 $SessionOption = New-PSSessionOption -IncludePortInSPN #Forces the port specified in the SPN
@@ -263,7 +288,7 @@ Import-Module WebAdministration
 		 
 			foreach($pool in $applicationPools)
 			   {
-			    #Using Unencrypted credentals due to errors with using the encrypted password
+			    #Using Unencrypted credentials due to errors with using the encrypted password
                 $un = $Using:username
                 $pw = $Using:newpwd1
 				
@@ -297,9 +322,8 @@ Catch { Write-Host "Could not invoke a remote command to $server!`n" -ForeGround
 
 
 
-
 ########################################
-# Start any stopped App Pools
+# Start any stopped AppPools
 ########################################
 function Start-AppPools
 {
@@ -313,7 +337,7 @@ $accounts = ConvertFrom-Csv $accounts
 $accounts | foreach {
 $username = $_.Username #Pulled from the Username column
 
-Foreach ($server in $Servers) 
+Foreach ($server in $Servers | Where {$_ -match "WB"}) 
 {
 	#Write-Host "`n`n`n`nConnecting to $server to check for stopped App Pools using $username...`n" -ForegroundColor DarkGreen -BackgroundColor Cyan
 Try {
@@ -322,7 +346,7 @@ Invoke-Command -ComputerName $server -SessionOption $SessionOption -ErrorAction 
 Import-Module WebAdministration
  
 	# Pulls the app pool list based on the credentials and whether it is stopped. 
-	$applicationPools = Get-ChildItem IIS:\AppPools | where { ($_.processModel.userName -eq "$Using:username") -and ($_.state -eq "Stopped") }
+	$applicationPools = Get-ChildItem IIS:\AppPools | where { ($_.processModel.userName -eq "$Using:username") -and ($_.state -eq "Stopped")}
 
 		  $Pools = $applicationPools.name # Not sure why this is here to be honest. Not used anywhere but left in case it's ever needed
 		  
@@ -430,7 +454,6 @@ Remove-Job SetServCredz | Out-Null
 
 
 
-
 ###########################################################
 # Checking if Accounts locked out in AD
 ###########################################################
@@ -439,7 +462,7 @@ function Check-ADLockOuts
 $ADaccounts = (Import-Csv $InputFile | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
 $users = ConvertFrom-Csv $ADaccounts 
 
-Write-Host "`n`nChecking Account lockout status..." -ForeGroundColor Red -BackGroundColor Yellow
+Write-Host "`n`nChecking Account lockout status..." -ForeGroundColor Blue -BackGroundColor White
 	
 # Removes the domain and back-slash	from the username
 Foreach ($user in $users)
@@ -453,7 +476,7 @@ Foreach ($user in $users)
 					if($locked) 
 						{
 							write-host "`n$un is Locked out!`n" -ForeGroundColor Red
-							Write-Host "Attempting to unlock the account..." -ForeGroundColor Yellow
+							Write-Host "***Attempting to unlock the account...***" -ForeGroundColor Yellow
 								Try 
 										{
 											Unlock-ADAccount -Identity $un -ErrorAction Continue;
@@ -478,7 +501,6 @@ Foreach ($user in $users)
 ###########################################################
 function UpdateAD
 {
-
 # Imports AD functionality
 Import-Module ActiveDirectory
 write-host "`n`nAD module imported..."
@@ -489,7 +511,7 @@ if($Global:accounts) {$accounts = $Global:accounts}
 # Pulls in the specific accounts from the temp csv file to be changed
 $users = ConvertFrom-Csv $accounts 
 
-Write-Host "Starting AD password changes..." -ForeGroundColor Red -BackGroundColor Yellow
+Write-Host "Starting AD password changes..." -ForeGroundColor Blue -BackGroundColor White
 	
 # Changes the AD passwords after removing the domain and back-slash	
 Foreach ($user in $users)
@@ -509,12 +531,11 @@ Foreach ($user in $users)
 				        }		
 		}
 		
-	Write-Host "`nWaiting for AD changes to Synchronize`n`n" -ForeGroundColor Yellow -BackGroundColor Red;
+	Write-Host "`nWaiting for AD changes to Synchronize`n`n" -ForeGroundColor Blue -BackGroundColor White;
 	Start-Sleep 30;
 	#Pause
 	#cls
 }
-
 
 
 ### Acquires required accounts ###
@@ -550,13 +571,16 @@ $Global:FunctionCheck = "yes"
 Write-Host `n `n `n
 Write-Host "This will change the service account passwords." -ForegroundColor Blue -BackGroundColor White
 Write-Host "`nDoing this will cause downtime with the system!" -ForegroundColor Blue -BackGroundColor White
-Write-Host "`nAre you sure you want to perform this task??" -ForegroundColor Green
-$ChangePasswords = Read-Host ' Start the Service Account password change process? Yes or No. (Default no) '  
+Write-Host "`nAre you sure you want to perform this task??`n" -ForegroundColor Green
+$ChangePasswords = Read-Host 'Start the Service Account password change process? Yes or No. (Default no) '  
 if (($ChangePasswords -eq 'yes') -or ($ChangePasswords -eq 'y')) 
 	{
 	
 		#Verifies that all servers can be access with 'invoke-command'
 		#WinRMVerify
+		
+		#Stop Services
+		StopServices
 
 		# Creates CSV formated variable to use for determining which accounts get their passwords updated
 		# Does not include the SQL and Agent accounts
@@ -566,7 +590,7 @@ if (($ChangePasswords -eq 'yes') -or ($ChangePasswords -eq 'y'))
 		UpdateAD
 
 		#Update SQL accounts
-		SQLChanges
+		#SQLChanges
 
 		#Re-acquire accounts for main system
 		Get-Accounts
@@ -575,7 +599,13 @@ if (($ChangePasswords -eq 'yes') -or ($ChangePasswords -eq 'y'))
 		Set-WindowsServicesCreds
 
 		# Updates the App Pools
-		Update_AppPools
+		UpdateAppPools
+		
+		#Start Services
+		#Start-StoppedServices
+		
+		#Recycle AppPools
+		#Recycle-AppPools
 
 		# Clears or resets variables
 		$accounts = $null
@@ -616,7 +646,7 @@ foreach ($srv in $Servers)
         $SessionOption = New-PSSessionOption -IncludePortInSPN
         Invoke-Command -ComputerName $srv -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {       
 
-        $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.State -eq "Running") -and ($_.StartMode -ne "Disabled") )}     
+        $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.State -eq "Running"))}     
     
         if($WinServices)
                 {   
@@ -627,26 +657,33 @@ foreach ($srv in $Servers)
 					  
 							Try 
 									{
-										Set-Service -Name "$svc" -StartupType Disabled -Status Stopped -PassThru | Out-Null -ErrorAction Continue;
-										Write-Host "Service $service -- Stopped and Disabled" -ForeGroundColor Green     
+										#Set-Service -Name "$svc" -Status Stopped -PassThru | Out-Null -ErrorAction Continue;
+										Get-Service -Name "$svc" | Stop-Service -Force -ErrorAction Continue; #Test for the above not working with dependant services
+										Write-Host "Service $service -- Stopped" -ForeGroundColor Green     
 									}
 
 							Catch 
 									{
-										Write-Host "`n`nService could not be Stopped and Disabled on "$srv":" -ForegroundColor Red;
+										Write-Host "`n`nService could not be Stopped on "$srv":" -ForegroundColor Red;
 										write-Host $_.Exception.Message				
 									}                        
 						}			
                 }
 				
         else {Write-Host "No Services to stop on this system!" -ForeGroundColor Yellow}
-}}}	
+	Exit-PSSession
+} -AsJob -Jobname StartEmz | Out-Null
+}
+wait-job -Name StartEmz -Timeout 180 | Out-Null
+Receive-Job -Name StartEmz
+Remove-Job StartEmz | Out-Null
+}	
 } 
  
   
  
 #################################################################
-######### Check and Start any Stopped Windows Services ##########
+######### Start any Stopped Windows Services ##########
 #################################################################
 
 function Check-WindowsServices
@@ -661,14 +698,11 @@ $username = $_.Username
 
 foreach ($srv in $Servers)
     {
-
-        #Write-Host "`n`n`n`nConnecting to $srv to check for stopped services using $username...`n" -ForegroundColor DarkGreen -BackgroundColor Cyan
+        Write-Host "`n`n`n`nConnecting to $srv to check for stopped services`n" -ForegroundColor DarkGreen -BackgroundColor Cyan
         $SessionOption = New-PSSessionOption -IncludePortInSPN
-        Invoke-Command -ComputerName $srv -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {
-       
+        Invoke-Command -ComputerName $srv -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {     
 
-        $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.State -ne "Running") -and ($_.StartMode -ne "Disabled") )}
-     
+        $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.State -ne "Running") -and ($_.StartMode -ne "Manual") -and ($_.StartMode -ne "Disabled") )}     
     
         if($WinServices)
                 {   
@@ -680,8 +714,8 @@ foreach ($srv in $Servers)
 					  
 							Try 
 									{
-										Set-Service -Name "$svc" -StartupType Automatic -Status Running -PassThru | Out-Null -ErrorAction Continue;
-										Write-Host "`nService $service Enabled and Started on $Using:srv" -ForeGroundColor Blue -BackgroundColor Yellow     
+										Set-Service -Name "$svc" -Status Running -PassThru | Out-Null -ErrorAction Continue;
+										Write-Host "`nService $service Started on $Using:srv" -ForeGroundColor Blue -BackgroundColor Yellow     
 									}
 
 							Catch 
@@ -696,13 +730,12 @@ foreach ($srv in $Servers)
 Exit-PSSession		
 } -AsJob -JobName CheckServz | Out-Null
 }
-wait-job -Name CheckServz -Timeout 60 | Out-Null
+wait-job -Name CheckServz -Timeout 120 | Out-Null
 Receive-Job -Name CheckServz
 Remove-Job CheckServz | Out-Null
 }
 }
 
- 
   
 ############################################################
 # Manually Change passwords on SQL Server 
@@ -714,7 +747,6 @@ Write-Host "`n Some of this process is manual so please pay attention!" -Foregro
 
 #$ChangePasswords = Read-Host 'Are you sure you want to change the SQL Service Account passwords? Yes or No. (Default no) '  
 $SQLaccounts = (Import-Csv $InputFile | Where {(($_ -match "mssql") -or ($_ -match "agent") -or ($_ -match "ssas") -and ($_ -match "Username") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
-
 
 # Imports AD functionality
 Import-Module ActiveDirectory
@@ -754,16 +786,15 @@ Foreach ($user in $users)
 	}
 
 
-
 #################################################################
-######### Start Previously stopped and disabled services ########
+######### Start Previously stopped services ########
 #################################################################
 
-function Start-StoppedDisabledServices
+function Start-StoppedServices
 {
 
 #Get List of accounts to check for stopped services
-$accounts = (Import-Csv $InputFile | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	# | Where {(($_ -match "spfarm") -or ($_ -match "claim") -and ($_ -match "UserName"))}
+$accounts = (Import-Csv $InputFile | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
 
 #Loops a list of user accounts to check on each server for stopped services
 $passwords = ConvertFrom-Csv $accounts # Acquired from parent function
@@ -778,8 +809,7 @@ foreach ($srv in $Servers)
         Invoke-Command -ComputerName $srv -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {
        
 
-        $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.State -ne "Running") -and ($_.StartMode -eq "Disabled") )}
-     
+         $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.State -ne "Running") -and ($_.StartMode -ne "Manual") -and ($_.StartMode -ne "Disabled") )}     
     
         if($WinServices)
                 {   
@@ -791,13 +821,14 @@ foreach ($srv in $Servers)
 					  
 							Try 
 									{
-										Set-Service -Name "$svc" -StartupType Automatic -Status Running -PassThru | Out-Null -ErrorAction Continue;
-										Write-Host "`nService $service Enabled and Started on $Using:srv" -ForeGroundColor Blue -BackgroundColor Yellow     
+										Set-Service -Name "$svc" -Status Running -PassThru | Out-Null -ErrorAction Continue;
+										#Set-Service -Name "$svc" -StartupType Automatic -Status Running -PassThru | Out-Null -ErrorAction Continue;
+										Write-Host "`nService $service Started on $Using:srv" -ForeGroundColor Blue -BackgroundColor Yellow     
 									}
 
 							Catch 
 									{
-										Write-Host "`n`nService could not be started and enabled on "$srv":" -ForegroundColor Red;
+										Write-Host "`n`nService could not be started on "$srv":" -ForegroundColor Red;
 										write-Host $_.Exception.Message				
 									}                        
 						}			
@@ -837,7 +868,7 @@ foreach ($srv in $Servers)
         $SessionOption = New-PSSessionOption -IncludePortInSPN
         Invoke-Command -ComputerName $srv -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {
        
-        $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.State -eq "Running") -and ($_.StartMode -ne "Disabled") )}
+        $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.State -eq "Running"))}
          
         if($WinServices)
                 {   
@@ -875,7 +906,7 @@ Remove-Job RestartServz | Out-Null
 
 
 ########################################
-# Recycle  specific AppPools
+# Recycle specific AppPools
 ########################################
 function Recycle-AppPools
 {
@@ -889,7 +920,7 @@ $accounts = ConvertFrom-Csv $accounts
 $accounts | foreach {
 $username = $_.Username #Pulled from the Username column
 
-Foreach ($server in $Servers) 
+Foreach ($server in $Servers | Where {$_ -match "WB"}) 
 {
 	
 Try {
@@ -940,6 +971,119 @@ $accounts = $null
 }
 
 
+#########################################
+# List Affected Windows Services
+#########################################
+function ListAffected-WindowsServices
+{
+#Get List of accounts
+$accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
+
+Write-Host "`nPlease be patient....`n" 
+
+#Loops a list of user accounts to check on each server 
+$passwords = ConvertFrom-Csv $accounts # Acquired from parent function
+$passwords | foreach {
+$username = $_.Username
+
+foreach ($srv in $Servers)
+    {        
+        #Write-Host "`nChecking for services on $srv`n" -ForegroundColor DarkGreen
+        $SessionOption = New-PSSessionOption -IncludePortInSPN
+        Invoke-Command -ComputerName $srv -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {
+        $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.StartMode -ne "Disabled") )}
+         
+        if($WinServices)
+                {  
+					Write-Host "`n$Using:srv is using the following:" -ForegroundColor Yellow
+					foreach ($srvc in $WinServices)	
+						{
+							$service = $srvc.DisplayName
+							$svc = $srvc.Name
+							Write-Host "`nFound $service using the account $Using:username" -ForeGroundColor Green #-BackgroundColor Green     					                   
+						}
+						
+						Write-Host "`n"						
+                }	
+				
+        else {}
+
+Exit-PSSession		
+
+} -AsJob -JobName ListServz | Out-Null
+}
+wait-job -Name ListServz -Timeout 120 | Out-Null
+Receive-Job -Name ListServz
+Remove-Job ListServz | Out-Null
+}
+}
+
+
+########################################
+# List Affected AppPools
+########################################
+function List-AppPools
+{
+#This may need to be modified to match whichever configuration is being used. This should be assigned as a paramater above
+$accounts = (Import-Csv $InputFile | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
+
+#$accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
+
+
+Write-Host "`nPlease be patient....`n" 
+
+$accounts = ConvertFrom-Csv $accounts 
+$accounts | foreach {
+$username = $_.Username #Pulled from the 'Username' column
+
+#Only uses the Web Servers
+Foreach ($server in $Servers | Where {$_ -match "WB"})
+{
+
+Try {
+        $SessionOption = New-PSSessionOption -IncludePortInSPN #Forces the port specified in the SPN
+        Invoke-Command -ComputerName $server -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock { #Uses the session created above using the port in the SPN
+        Import-Module WebAdministration
+ 
+		Try 
+			{	
+	        # Pulls the app pool list based on the credentials and whether it is stopped. 
+	        $applicationPools = Get-ChildItem IIS:\AppPools | where { ($_.processModel.userName -eq "$Using:username") }# -and ($_.state -eq "Started") }
+			}
+			
+		Catch 
+			{
+				Write-Host "No App Pools on &Using:server"
+			}	
+		
+	  
+			        if($applicationPools) # Only runs the below process if there are any app pools to run against (if not null)
+				        { 	
+							Write-Host "`n$Using:server is using the following:" -ForegroundColor Yellow
+							
+					        foreach($pool in $applicationPools)
+					           {
+                                    # Many powershell Commandlets and commands do not like variables pulled directly from outside of the invocation
+							        $AppPool = $pool.name 				
+									Write-Host "`nFound $AppPool using the account $Using:username" -ForegroundColor White -BackGroundColor Black								
+						        }
+								
+								Write-Host "`n"
+				        }
+
+			        Else {}
+
+Exit-PSSession
+} -AsJob -JobName ListPoolz | Out-Null
+}
+Catch { Write-Host "Could not invoke a remote command to $server!`n" -ForeGroundColor Red; write-Host $_.Exception.Message }
+} 
+wait-job -Name ListPoolz -Timeout 120 | Out-Null
+Receive-Job -Name ListPoolz
+Remove-Job ListPoolz | Out-Null   
+}
+# Clears or resets variables
+}
 
 ####################################################################
 # Select a desired task to perform on farm
@@ -947,48 +1091,56 @@ $accounts = $null
  do {
  
  [int]$Task = 0
-while ($Task -lt 1 -or $Task -gt 12)  {
+while ($Task -lt 1 -or $Task -gt 16)  {
 cls
 Write-Host  "`n#####  TROUBLE-SHOOTING TASKS  #####" -ForegroundColor Black -BackgroundColor White
 Write-Host  "1.   Verify Remote Connectivity"
-Write-Host  "2.   Check if Accounts Locked"
-Write-Host  "3.   Start any Application Pools that have stopped" 
-Write-Host  "4.   Start any Windows Services that have stopped"
+Write-Host	"2.   List Windows Services affected by this script"		
+Write-Host	"3.   List IIS AppPools affected by this script"
+Write-Host  "4.   Check if Accounts Locked"
+Write-Host  "5.   Start any Application Pools that have stopped" 
+Write-Host  "6.   Start any Windows Services that have stopped"
   
 Write-Host  "`n#####  PASSWORD CHANGE TASKS  #####" -ForegroundColor Black -BackgroundColor White
-Write-Host  "5.   Change Service Account Passwords"
+Write-Host  "7.   Change Service Account Passwords"
+Write-Host 	"8.   Encrypt CSV containing passwords"
+Write-Host 	"9.   Decrypt CSV containing passwords"
   
 Write-Host  "`n#####  SYSTEM RESTART OPTIONS  #####" -ForegroundColor Black -BackgroundColor White
-Write-Host  "6.   Restart (Not SQL) Servers"
-Write-Host  "7.   Restart SQL Server(s)"
+Write-Host  "10.  Restart (Not SQL) Servers"
+Write-Host  "11.  Restart SQL Server(s)"
  
 Write-Host  "`n#####  MAINTENANCE TASKS  #####" -ForegroundColor Black -BackgroundColor White
-Write-Host  "8.   Stop & Disable Services using service accounts on all servers"
-Write-Host  "9.   Start previously stopped and disabled Services on all servers"
-Write-Host  "10.  Restart running Windows Services" 
-Write-Host  "11.  Recycle all system specific AppPools in IIS" 
+Write-Host  "12.  Stop relevant services on all servers"
+Write-Host  "13.  Start relevant Services on all servers"
+Write-Host  "14.  Restart running Windows Services" 
+Write-Host  "15.  Recycle all system specific AppPools in IIS" 
  
-Write-Host "`n12.  Exit this script" -ForeGroundColor Yellow
+Write-Host "`n16.  Exit this script" -ForeGroundColor Yellow
  
 [int]$Task = Read-Host "`n`nSelect a task to perform on this farm"
 
 switch($Task)
 		{	
 			1	{WinRMVerify; pause}
-			2	{Check-ADLockOuts; pause}
-			3	{Start-AppPools; pause}
-			4	{Check-WindowsServices; pause}
-			5	{Change-ServiceAccountPasswords; pause}
-			6	{RestartServers}
-			7	{RestartSQL; pause}
-			8	{StopServices; pause}
-			9	{Start-StoppedDisabledServices; pause}
-			10	{Restart-WindowsServices; pause}
-			11	{Recycle-AppPools; pause}
-			12 	{exit}		
+			2	{ListAffected-WindowsServices; pause}
+			3	{List-AppPools; pause}
+			4	{Check-ADLockOuts; pause}
+			5	{Start-AppPools; pause}
+			6	{Check-WindowsServices; pause}
+			7	{Change-ServiceAccountPasswords; pause}
+			8	{Cipher /E $InputFile; pause}
+			9	{Cipher /D $InputFile; pause}
+			10	{RestartServers}
+			11	{RestartSQL; pause}
+			12	{StopServices; pause}
+			13	{Start-StoppedServices; pause}
+			14	{Restart-WindowsServices; pause}
+			15	{Recycle-AppPools; pause}
+			16 	{exit}		
 			
 			default	{Write-Host "Nothing Selected"}			
 		}
 	}
-} While ($Task -ne 12)
+} While ($Task -ne 16)
 
