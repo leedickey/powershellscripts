@@ -7,53 +7,62 @@ Changes account passwords using the provided CSV (inputfile), restarts the farm 
 .\SharePoint2016Tasks.ps1 
 
 .NOTES
-Author: Lee Dickey (Lee.A.Dickey@uscg.mil) x2673
-Date: 07 May 2018
+Author: Lee Dickey 
+Date: 24 June 2019
 Version: 3.0
 
-V 3.0 05/07/2018
+V 3.0 06/24/2019 -COMPLETE REWRITE-		
+		- Added logging function to both capture a log and display to the host (LoggerLee)
+			- Log file is created at first run of the script and is immediately encrypted
+		- Rewrote all of the functions requiring the invoke-command to properly make future troubleshooting easier
+			- Most all of the functions now use a template (for the most part) that makes modification easier if required
+		- Corrected error handling actions (stop instead of continue)
+		- Rewrote Job handling so it makes more sense
+		- Added a function to change passswords on existing Scheduled Tasks (needs additional testing)
+		- Fixed a number of bugs that cropped up over the past year.
+
+	UNTESTED:
+		- Added encrypting and decrypting of the $logfile to the menu and actions, HOWEVER, the log file changes from run-to-run. Would be best
+		  to delete the log files once completed to prevent leakage of credential data.
+
+V 2.2 05/07/2018
 		- Added commands to encrypt and decrypt the Accounts.csv file.
 			* Only the user that encrypted the file can read and decrypt it.
 		- Add new commands to list the App Pools and Windows services that will be affected by the scripts other commands
 		- Added more details to the .Requirements for firewall permissions, WinRM activation, and PowerShell features
 		- Removed outdated and no longer used functions 
 
-V 2.1 06/13/2017:
-
+V 2.1 06/13/2017
 	- Added new function to restart running Windows Services specific to SharePoint
 	- Added new function to recycle AppPools specific to the SharePoint farm
 	- Added secondary sub-menu for post-password change troubleshooting tasks (some are dupes)
 	- Cleaned up font coloring and text formatting
 
-V 2.0 05/24/2017:
-	
+V 2.0 05/24/2017
 	- Enabled parrallel processing of tasks to multiple functions to speed up tasks using PowerShell jobs.
 	- Minor text fixes
 
-V 1.2 04/25/2017:
-
+V 1.2 04/25/2017
 	-	Completely rewrote the menu system which improves functionality in a significant way and shortens the code to 1/3 original length.
 	-	Minor text and formatting fixes
 
-V 1.1 04/20/2017: 
-	
+V 1.1 04/20/2017 
 	-	Corrected output formatting issues with function to start App Pools
 	-	Removed a clear-host and pause command from the function to Unlock Site collections
 	-	Other minor fixes to output formatting to clean up readability
 
-	Known Issues:
-		- Logging - is not working correctly. Disabled for now
+	Known Issues
+		FIXED - Logging - is not working correctly. Disabled for now
 
 V 1.0:
-
 	- 	First Official version. Has functions that are to be used primarily in a SharePoint environment that
-		does not allow SharePoint to work as intended when using SP Managed Accounts to manage service account password changes.
+		do not allow SharePoint to work as intended when using SP Managed Accounts to manage service account password changes.
 	
 	-	To do: 
 		-	Move editable variables / values to the top of the script
-		-	Add checks for locked out accounts to AD password changes
-		-	Add checks for locked out accounts to SP Managed Account Password changes
-		-	Other things I haven't thought of yet.	
+		DONE -	Add checks for locked out accounts to AD password changes 
+		DONE -	Add checks for locked out accounts to SP Managed Account Password changes
+		DONE -	Other things I haven't thought of yet.	
 	
 	-	Some features include:
 		-	Fully menu driven. Just run the script as an administrator
@@ -70,7 +79,7 @@ V 1.0:
 		-	Powershell 3.0 or higher
 		-	WinRM must be enabled and remote Powershell must also be enabled
 			- Check if WinRM is running by using this PowerShell command as admin: get-service winrm
-				- If not running, run the following PowerShell command as admin: Enable-PSRemoting ñforce
+				- If not running, run the following PowerShell command as admin: Enable-PSRemoting ‚Äìforce
 			- Check firewall and make sure the following firewall rules are open on the server using the 'Windows Firewall with Advanced Security'
 				* Windows Remote Management - Compatibility Mode (HttP-IncludePortInSPN)
 				* Window Remote Management (HTPP-In)
@@ -92,12 +101,15 @@ V 1.0:
 [cmdletbinding()]
 param(
 [string] $Global:InputFile = "c:\Allowed\Scripts\accounts.csv",
-[switch] $newPasswords = $false,
-[string] $Global:Logfile = "c:\Allowed\Scripts\SharePointTaskLog.log")
+[switch] $newPasswords = $false)
 
 ## Set the TimeOut limit in seconds for the background jobs. 60-120 seconds does not seem to be long enough in some environments
 $JobTimeout = '300'
 
+#get the date and time for log file creation
+$logtime = get-date -format yyyy-MM-dd_HH-mm-ss
+#Set the Log file location. 
+$Global:Logfile = "c:\Allowed\Scripts\SharePointTaskLog_$logtime.log"
 
 ################################################## 
 # Check for Admin Privileges
@@ -109,27 +121,76 @@ If (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Break
 } ###############################################
 
+LoggerLee -text "Logfile Created $logtime`n" -LogType Info -linebreak newline
+Cipher /E $logfile | out-null
+
 
 ### Add Snappin
 Add-PSSnapin Microsoft.Sharepoint.Powershell
 
-######################################################################################################################
-##### Function to allow multiple colored text on one line. Makes for nicer feedback ##################################
-##### Source: https://stackoverflow.com/questions/2688547/muliple-foreground-colors-in-powershell-in-one-command  ####
-######################################################################################################################
-function Write-Color([String[]]$Text, [ConsoleColor[]]$Color = "White", [int]$StartTab = 0, [int] $LinesBefore = 0,[int] $LinesAfter = 0) {
-$DefaultColor = $Color[0]
-if ($LinesBefore -ne 0) {  for ($i = 0; $i -lt $LinesBefore; $i++) { Write-Host "`n" -NoNewline } } # Add empty line before
-if ($StartTab -ne 0) {  for ($i = 0; $i -lt $StartTab; $i++) { Write-Host "`t" -NoNewLine } }  # Add TABS before text
-if ($Color.Count -ge $Text.Count) {
-    for ($i = 0; $i -lt $Text.Length; $i++) { Write-Host $Text[$i] -ForegroundColor $Color[$i] -NoNewLine } 
-} else {
-    for ($i = 0; $i -lt $Color.Length ; $i++) { Write-Host $Text[$i] -ForegroundColor $Color[$i] -NoNewLine }
-    for ($i = $Color.Length; $i -lt $Text.Length; $i++) { Write-Host $Text[$i] -ForegroundColor $DefaultColor -NoNewLine }
-}
-Write-Host
-if ($LinesAfter -ne 0) {  for ($i = 0; $i -lt $LinesAfter; $i++) { Write-Host "`n" } }  # Add empty line after
-}
+####################################
+# Logging and Output Function
+####################################
+<#
+Requirements: Log file path set for variable $logfile
+Usage:  Generates output for both the console and for a log file
+Example: LoggerLee -Text "error message or $ErrorMsg" -Logtype "error"
+Author(s): Lee Dickey & Jason Radcliff
+
+#>
+function LoggerLee() {
+    [CmdletBinding()]
+    param 	(
+        [parameter(Mandatory=$True)]  [String]$text,
+        [ValidateSet("low","info","warning","error","success")][string]$logType = "info",
+        [ValidateSet("newline","nonewline")][string]$linebreak = "newline"         
+			)
+
+    Switch ($logType)
+    {
+        "warning" {
+            $color = "yellow";
+            $bgcolor = "black";
+				  }
+        "error" {
+            $color = "red";
+            $bgcolor = "black";
+				}
+        "info" 	{
+            $color = "white";
+            $bgcolor = "blue";
+				}
+		"success" 	{		
+			$color = "Green";
+            $bgcolor = "DarkBlue";
+					}
+		"low"		{
+			$color = "DarkGray";
+			$bgcolor = "Darkblue";
+					}
+    }
+    Switch ($linebreak)
+    {
+        "nonewline" {
+            $nobreak = "-NoNewLine";            
+                    }
+        "newline" {
+            $nobreak = "";    
+                    }    
+  }       
+	
+    $LogTime = get-date -Format g
+    #$logfile = "c:\allowed\scripts\AAATestingSTuff.log"
+        
+	if ($logtype -eq "low")
+	{	write-host "$Text" -ForegroundColor $color -nonewline
+		if ($linebreak -eq "newline") {write-host ""}	}
+	
+	else
+	{	Write-Output "`n >> $LogTime - $Text" | out-file $logfile -Append;
+		write-host "$Text" -ForegroundColor $color -BackgroundColor $bgcolor -nonewline
+		if ($linebreak -eq "newline") {write-host ""} }    
+}  
 
 
 ##################################################################
@@ -155,7 +216,6 @@ $Global:CacheServers = (Get-SPServer | Where-Object {($_.Role -eq "DistributedCa
 # Get Web Servers
 $Global:WebServers = (Get-SPServer | Where-Object {($_.Role -eq "WebFrontEnd")} | Select-Object @{Name = "ServerName"; Expression = {$_.Address}} | ConvertTo-CSV -NoTypeInformation | Select-Object -skip 1 | % {$_ -replace '"',''}) | Out-String
 
-
 # Get Database Server
 $db = (Get-SPDatabase)[0]
 $Global:DBServers = $db.Server.Address
@@ -167,12 +227,57 @@ $Global:SPServers = $Servers.DisplayName
 GetSharePointServers
 
 
+
+######################################################
+### Acquires required accounts for SharePoint farm ###
+######################################################
+function Get-Accounts
+	{
+		LoggerLee "`n`nBuilding list of AD accounts...`n`n" info
+		if($Global:accounts)
+			{$Global:accounts = $null}
+		
+		Start-Sleep 5
+		
+		$Global:accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
+	}
+
+
+#######################################################
+# PowerShell Jobs  - Wait to be completed  
+#######################################################
+
+# Waits for the PowerShell job on the server to reach the required state.
+function WaitForJob([string]$jobName, [string]$jobState)
+{
+	LoggerLee -text "`n`nWaiting for a background job to be $jobState" low nonewline
+
+	do
+	{
+		Start-Sleep 1
+		Write-Host -foregroundcolor DarkGray -NoNewline "."
+        $jobstatus = get-job -name $jobName 
+	}
+        
+	while ($jobstatus.State -ne $jobState)
+    Write-Host " "
+    Write-Host " "
+
+	#Write-Host -foregroundcolor DarkGray -NoNewLine " The job $jobName is "
+	#Write-Host -foregroundcolor Gray $jobState
+	
+    #LoggerLee " The background job is " low nonewline
+	#LoggerLee "$jobState`n" low
+}
+
+
 ######################################################################
-# Check to verify that remote acccess is possible via Invoke-Command
+# Check to verify that remote access is possible via Invoke-Command
 ######################################################################
 function WinRMVerify
 {
-Write-Host "`n`n`nConfirming that Remote Management is enabled`n" -ForeGroundColor Blue -BackgroundColor White
+remove-job *
+
 ###*****************************************************************************************###
 ### Checks all of the servers to ensure the invoke-command will work. Most everything else 
 ### will not work if this check fails.
@@ -180,26 +285,58 @@ Write-Host "`n`n`nConfirming that Remote Management is enabled`n" -ForeGroundCol
 foreach ($system in $SPServers) 
 {
 	$SessionOption = New-PSSessionOption -IncludePortInSPN
-	Try # Attemps remote session connection to make sure Remote Management works
+	Try 
 		{
-			Invoke-Command -ComputerName $system -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock  {
-			Write-Host "Remote Access successful on $Using:system" -ForeGroundColor Green;
-			Exit-PSSession} -AsJob -JobName RMVerifiez | Out-Null # Executes this script block as a background task
-		}
+		    Invoke-Command -ComputerName $system -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock  {
+               
+               $result = [PSCustomObject]@{
+               Success = $false
+               Message = $null
+               Completed = $false
+               Serv = $using:system
+               }  
+                  
+            Try
+                    {
+			            $result.message = "Remote Access successful on $Using:system`n"
+                        Write-Output $result.message -ErrorAction stop
+                        $result.success = $true
+                    }
 
-	Catch 
-		{
-			Write-Host "Unable to remotely connect to $system! with the following error:`n";
-			write-Host $_.Exception.Message;
-			Exit 
-		}
+            Catch
+                    {
+                        $result.message = $_.Exception.Message;
+                        $result.success = $false
+                    }
+
+$result
+} -AsJob | Out-Null
 }
-# Waits until the backgrounds are completed 
-wait-job -Name RMVerifiez -Timeout 60 | Out-Null
-# Displays the results of the background tasks once all have been completed
-Receive-Job -Name RMVerifiez
-# Removes the jobs from memory 
-Remove-Job RMVerifiez | Out-Null
+Catch { 
+        LoggerLee "Could not invoke a remote connection to $server`n" warning; 
+        LoggerLee "$_.Exception.Message" error        
+      }
+} 
+	#Start of Jobs retrieval
+	        $jobs = get-job # | wait-job -timeout 120
+            foreach ($job in $jobs){
+		    WaitForJob $job.name "Completed"
+            $jobresult = $job | receive-job
+
+            if ($jobresult.success -eq $true) 
+				{
+					LoggerLee -text "$($jobresult.message)" success
+				}
+
+            else 
+				{
+					LoggerLee "This was a failure on $($jobresult.serv)" warning;
+					LoggerLee "$($jobresult.message)`n`n" error  
+				} }					
+				
+# Clears or resets variables
+$accounts = $null 
+remove-job *
 }
 
 #########################################################
@@ -212,21 +349,24 @@ function LockSPSites
 
 $SiteCollection = Get-SPSite | Where-Object {($_.Url -match "epm16") -or ($_.Url -match "epm16-my") -and ($_.Url -notmatch "personal") } | select Url
 $SiteCollections = $SiteCollection.Url
-Write-Host "`n`nLocking the site collections!" -ForegroundColor Blue -BackGroundColor White
+LoggerLee -Text "`n`nLocking the site collections...." Warning
 Start-Sleep -s 5
 foreach ($sc in $SiteCollections)
     { 
 		#Locks the site collections to prevent corruption to the database
 		#if someone tries to make changes while everything is going on
         Try
-            {Set-SPSite -Identity $sc -LockState "ReadOnly" -ErrorAction Continue; 
-            Write-Host "Locked the site collection: $sc" -ForeGroundColor Green }
+            {
+                Set-SPSite -Identity $sc -LockState "ReadOnly" -ErrorAction Stop; 
+                LoggerLee -Text "Locked the site collection: $sc" -LogType Success 
+            }
 
         Catch
-            { Write-Host "Cannot lock site collection: $sc" -BackGroundColor Red;
-			  Write-Host "Please check the logs for details.";
-			  write-Host $_.Exception.Message }
-			  
+            { 
+              LoggerLee -Text "Cannot lock site collection: $sc" Error;
+			  LoggerLee -Text "Please check the logs for details." Error;
+			  LoggerLee $_.Exception.Message Error 
+            }			  
     }
 		#Pause
 }
@@ -241,25 +381,26 @@ function UnlockSPSites
 $SiteCollection = Get-SPSite | Where-Object {($_.Url -match "epm16") -or ($_.Url -match "epm16-my") -and ($_.Url -notmatch "personal") } | select Url
 $SiteCollections = $SiteCollection.Url
 
-Write-Host "`n`nUNLOCKING SITE COLLECTIONS...." -BackGroundColor white -ForegroundColor Blue 
+LoggerLee "`n`nUnlocking Site Collections....`n" Warning 
 foreach ($sc in $SiteCollections)
     { 
 		 # Unlocks the site collections that are typically used for typical use
         Try
-            {Set-SPSite -Identity $sc -LockState "Unlock" -ErrorAction Stop;
-            Write-Host "Unlocked the site collection: $sc" -ForeGroundColor Green }
+            {
+                Set-SPSite -Identity $sc -LockState "Unlock" -ErrorAction Stop;
+                LoggerLee "Unlocked the site collection: $sc" Success 
+            }
 
         Catch
-			{ 	Write-Host "Cannot Unlock site collection: $sc";
-				Write-Host "Please check the logs for details";
-				write-Host $_.Exception.Message
+			{ 	LoggerLee "Cannot Unlock site collection: $sc" Error;
+				LoggerLee "Please check the logs for details" Error;
+				LoggerLee $_.Exception.Message Error
 			}
     }
-Write-Host "`nAll site collections have been unlocked.`n`n" -ForegroundColor Green
+LoggerLee "`nTask Completed.`n`n" Info
 #Pause
 #cls
 }
-
 
 
 ###########################################################
@@ -267,8 +408,9 @@ Write-Host "`nAll site collections have been unlocked.`n`n" -ForegroundColor Gre
 ###########################################################
 function RestartFarm
 {
-write-Host "`n`n`nSharePoint Servers (Not SQL) be restarted!" -ForegroundColor Green
-Write-Host "Type 'Yes' and press enter to restart all SharePoint servers (not DB server)!" -ForegroundColor DarkYellow
+#Start-Transcript -Path $Logfile -IncludeInvocationHeader -Append -Force
+LoggerLee "`n`n`nSharePoint Servers (Not SQL) to be restarted!" Info
+LoggerLee "Type 'Yes' and press enter to restart all SharePoint servers (not DB server)!" Warning
 $RestartSPServers = Read-Host 'Yes or No (Default Yes)  >>'  
 
 if (($RestartSPServers -eq 'Yes') -or ($RestartSPServers -eq "y"))
@@ -276,46 +418,51 @@ if (($RestartSPServers -eq 'Yes') -or ($RestartSPServers -eq "y"))
 # Rebuilds the server list excluding the current logged in system to avoid rebooting the system you are currently using
 $SPServers = $SPServers | Where-Object {$_ -ne $env:computername}
 foreach ($server in $SPServers) {
-Try 	{
-			restart-computer -computername $server -Force -ErrorAction Continue;
-			write-host "Restarting $server";
-			Start-Sleep -s 2;
+Try 	
+        {
+			LoggerLee "Restarting $server" Info;
+            restart-computer -computername $server -ErrorAction stop ;
+            LoggerLee "$server successfully restarted" success
+			Start-Sleep -s 2
 		}
-Catch 	{
-			Write-Host "Unable to restart $server. Investigate and restart manually asap!";
-			write-Host $_.Exception.Message
+Catch 	
+        {
+			LoggerLee "Unable to restart $server. Investigate and restart manually asap!" Error;
+            $restarterror1 = "$_.Exception.Message";
+			LoggerLee -text $restarterror1 -LogType Error;
 			Pause
 		}
 } 
-Write-Host "`n`nAll other servers have been restarted. This server must now be restarted." -ForegroundColor Green;
-Write-Host "`nSave all work and press ENTER to reboot this system." -ForegroundColor Green;
-pause;
-Write-Host "`nAfter this system reboots, give all processes and services 5 to 10 minutes to start up before you continue." -ForegroundColor Blue -BackGroundColor Yellow;
-Start-Sleep -s 30;
+    LoggerLee "`n`nAll other servers have been restarted. This server (you are on) must now be restarted." Warning;
+    LoggerLee "`nSave all work and press ENTER to reboot this system." Info;
+    pause;
+    LoggerLee "`nAfter this system reboots, give all processes and services 5 to 10 minutes to start up before you continue." warning;
+    Start-Sleep -s 30;
 
 Try
 	{
-		restart-computer -computername "$env:computername" -force -ErrorAction Continue;
+        LoggerLee "Restarting system $env:computername`n" Info
+		restart-computer -computername "$env:computername" -ErrorAction Stop;
+        LoggerLee "$env:computername successfully restarted`n" Success       
 	}
 	
 Catch
 	{	
-		Write-Host "Unable to reboot this server $server. Manually restart when ready";
-		write-Host $_.Exception.Message
+		LoggerLee "Unable to reboot this server $server. Manually restart when ready" error;
+		$restarterror2 = "$_.Exception.Message";
+        LoggerLee $restarterror2 error
 	}
 		
 Finally 
 	{
-		Write-Host "Please manually restart any servers that did not restart then continue!" -ForeGroundColor Red -BackGroundColor Blue;
+		LoggerLee "Please manually restart any servers that did not restart then continue!" info;
 		Pause	
 	}
 }
 
 else 
-	{
-		Write-Host "`n `nExited without restarting the SharePoint App and Web servers. This may be required at a later time." -ForegroundColor Yellow
-
-}
+	{LoggerLee "`n`nExited without restarting the SharePoint App and Web servers. This may be required at a later time." warning}
+#Stop-Transcript
 }
 
 
@@ -325,96 +472,134 @@ else
 function RestartSQL
 {
 cls
-Write-Host "Type Yes to restart the database server $DBServers" -ForegroundColor Blue -BackGroundColor White
-Write-Host "`nType 'Yes' or press enter in order to restart the server" -ForegroundColor Green
+LoggerLee "Type Yes to restart the database server $DBServers" warning
+LoggerLee "`nType 'Yes' or press enter in order to restart the server" info
 $RestartDB = Read-Host ' Restart SQL Servers? Yes or No. (Default No) '  
 if (($RestartDB -eq 'Yes') -or ($RestartDB -eq 'y'))
 	{		
-		Try {
-				#LockSPSites
-				Restart-Computer -ComputerName $DBServers -Force;# -ErrorAction Stop;
-				Write-Host "`n`nRestarting the database server $DBServers....`n"  -ForeGroundColor Yellow;
+		Try {				
+                LoggerLee "`n`nRestarting the database server $DBServers....`n"  info
+				Restart-Computer -ComputerName $DBServers -Force -ErrorAction Stop;
 				#While (Test-Connection -Quiet -Delay 1 $DBServers) {Write-Host "Waiting for $DBServers to restart and go offline..."}
 				Start-Sleep 120
 				#While (!(Test-Connection -Quiet -Delay 7 $DBServers)) {Write-Host "Waiting for $DBServers to come back online"}
-				Write-Host "$DBServers back online!" -ForeGroundColor Green;
-				Write-Host "`nSQL Server restart completed.`n" -ForeGroundColor Green;
+				LoggerLee "$DBServers back online!" success;
+				LoggerLee "`nSQL Server restart completed.`n" success;
 				Pause;
-				#UnlockSPSites				
-				
 			}
+
 		Catch 
-			{	
-				Write-Host "Failed to restart SQL Server." -ForeGroundColor Red;
-				Write-Host "Please manually restart the server and then Press Any Key to continue `n `n `n" -ForeGroundColor Red;
-				write-Host $_.Exception.Message;
-				Write-Host "`n"
-				Pause;
-			}
 			
-		#Finally {UnlockSPSites}
+            {	
+				LoggerLee "Failed to restart SQL Server." error;
+				LoggerLee "Please manually restart the server and then Press Any Key to continue `n `n `n" warning;
+				$restarterror3 = "$_.Exception.Message";
+                LoggerLee "$restarterror3`n" error
+				Pause;
+			}		
 	}
 	
-else {Write-Host "`n`nCancelling SQL Server restart on $DBServers.`n`n"} 
+else {LoggerLee "`n`nCancelling SQL Server restart on $DBServers.`n`n" info} 
 } 
-
 
 
 ########################################
 # AppPool password changes
 ########################################
 function UpdateAppPools
-{	
+{
+remove-job *	
+#LoggerLee "Updating Passwords for the App Pools....`n`n" Warning
+
 ### Grabs the accounts to be changed in the global variable of $accounts
 $passwords = ConvertFrom-Csv $accounts # Acquired from parent function
 $passwords | foreach {
 $newpwd1 = $_.NewPassword
 $username = $_.Username
 #$newpassword = ConvertTo-SecureString -String $newpwd1 -AsPlainText -Force
-
+LoggerLee -text "`n`n`nUpdating App Pool Passwords for the account: " info -linebreak nonewline
+LoggerLee -text " $username`n" info
 Foreach ($server in $SPServers)
 {
 Try {
+
 $SessionOption = New-PSSessionOption -IncludePortInSPN #Forces the port specified in the SPN
 Invoke-Command -ComputerName $server -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock { #Uses the session created above using the port in the SPN
+			
+			$result = [PSCustomObject]@{
+            Success = $false
+            Message = $null
+            Completed = $false
+            Serv = $using:server
+               }  
+			   
 Import-Module WebAdministration 
 
   $applicationPools = Get-ChildItem IIS:\AppPools | where { $_.processModel.userName -eq "$Using:username" }
   $Pools = $applicationPools.name
 	if($applicationPools) 
-
-		{Write-Host "`n`n"; Write-Host "AppPools using the $Using:username account are being updated on"$Using:server":" -BackGroundColor Yellow -ForegroundColor DarkRed; Write-Host "`n"}
-		 
+        {
+            $result.message += "`n`nAppPools using the $Using:username account are being updated on $Using:server`n"      
+        		 
 			foreach($pool in $applicationPools)
 			   {
 			    #Using Unencrypted credentals due to errors with using the encrypted password
                 $un = $Using:username
-                $pw = $Using:newpwd1
-				
+                $pw = $Using:newpwd1				
 					Try 
 						 {
-							$pool.processModel.userName = "$un"
-							$pool.processModel.password = "$pw"
-							$pool.processModel.identityType = 3
-							Write-Host "Changing password for"$pool.name"to $pw" -BackgroundColor DarkMagenta -ForegroundColor Green
-							$pool | Set-Item -ErrorAction Stop 							
-						  }
+							$pool.processModel.userName = "$un";
+							$pool.processModel.password = "$pw";
+							$pool.processModel.identityType = 3;
+							$result.message += "`nChanging password for $($pool.name) to $pw `n" ;
+							$pool | Set-Item -ErrorAction Stop -WhatIf; 							
+                            $result.message += "Password changed successfully!`n`n";
+							$result.success = $true
+                         }
 
 					 Catch
 						  {
-							Write-Host "No-Go on the password Change";
-							write-Host $_.Exception.Message
-						  }
+							$result.message += "Failure on the password Change for $($pool.name) `n";
+                            write-output $_.Exception.message;
+							$result.message += $_.Exception.Message;
+							$result.success = $false 
+						  }						  
 				}
-	Exit-PSSession	
-	} -AsJob -JobName UpdateAppPoolz | Out-Null    
+		}
+	else {
+            $result.success = $true;
+            $result.message = "No App Pool password to update on $using:server with account $using:username`n"
+         }	
+	 $result		
+	#Exit-PSSession	
+	}  -AsJob | out-null #-JobName UpdateAppPoolz | Out-Null  		
+}	
 
-} 
-Catch { Write-Host "Could not invoke a remote command to $server!`n" -ForeGroundColor Red; write-Host $_.Exception.Message }    
+Catch 
+    { 
+        LoggerLee "Could not invoke a remote connection to $server!`n" warning; 
+        LoggerLee "$($_.Exception.Message)" error;
+    } 
 }
-	Wait-Job -Name UpdateAppPoolz -timeout $JobTimeout | out-null
-	Receive-Job -Name UpdateAppPoolz
-	Remove-Job * | Out-Null 
+        $jobs = get-job # | wait-job -timeout 120
+        foreach ($job in $jobs){
+		WaitForJob $job.name "Completed"
+        $jobresult = $job | receive-job
+
+            if ($jobresult.success -eq $true) 
+				{
+					#LoggerLee -text "Success on $($jobresult.serv)" warning;
+					LoggerLee -text "$($jobresult.message)" success
+				}
+
+            else 
+				{
+					LoggerLee "This was a failure on $($jobresult.serv)" warning;
+					LoggerLee "$($jobresult.message)`n`n" error  
+				} 							
+					#write-host $jobresult.success				
+}
+remove-job *
 }
 }# End of App Pools Password changes
 
@@ -427,8 +612,7 @@ function Start-AppPools
 #This may need to be modified to match whichever configuration is being used. This should be assigned as a paramater above
 $accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
 
-Write-Host "`n`n`nChecking for any App Pools that are enabled and not running...." -BackGroundColor White -ForeGroundColor Blue
-Write-Host "`nThis may take some time. Please be patient...." -ForeGroundColor Yellow
+LoggerLee "`n`n`nChecking for any App Pools that are enabled and not running....`n`n`n" info
 
 $accounts = ConvertFrom-Csv $accounts 
 $accounts | foreach {
@@ -440,7 +624,15 @@ Foreach ($server in $SPServers)
 	#Write-Host "`n`n`n`nConnecting to $server to check for stopped App Pools using $username...`n" -ForegroundColor DarkGreen -BackgroundColor Cyan
 Try {
 $SessionOption = New-PSSessionOption -IncludePortInSPN #Forces the port specified in the SPN
+
 Invoke-Command -ComputerName $server -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock { #Uses the session created above using the port in the SPN
+			$result = [PSCustomObject]@{
+            Success = $false
+            Message = $null
+            Completed = $false
+            Serv = $using:server
+               } 
+
 Import-Module WebAdministration
  
 	# Pulls the app pool list based on the credentials and whether it is stopped. 
@@ -458,30 +650,59 @@ Import-Module WebAdministration
 
 								Try 
 									 {
-										(Start-WebAppPool -ErrorAction Continue -Name "$AppPool");
-										Write-Host "`nStarted AppPool $AppPool on $Using:server" -ForegroundColor White -BackGroundColor Yellow								
+                                        $result.message += "Attempting start of $AppPool...`n";    
+										(Start-WebAppPool -ErrorAction Stop -Name "$AppPool");
+										$result.message += "Completed successfully!`n`n";
+							            $result.success = $true 								
 									  }
 
 								 Catch
 									  {
-										Write-Host "`n`nNo-Go on AppPool start for $AppPool on $Using:server with the account $Using:username" -ForegroundColor Red;
-										write-Host $_.Exception.Message
+							            $result.message += "*******Action Failed*********** `n";
+							            $result.message += $_.Exception.Message;
+							            $result.success = $false 
 									  }
 						}
 				}
-			Else {Write-Host "`nNo App Pools using $Using:username need restarting on $Using:server" -ForeGroundColor Green}
-Exit-PSSession
-} -AsJob -JobName StartPoolz | Out-Null
+
+			Else {
+                    $result.success = $true;
+                    $result.message += "No Action to take on $using:server `n`n`n"
+                  }
+
+$result
+} -AsJob | Out-Null
 }
-Catch { Write-Host "Could not invoke a remote command to $server!`n" -ForeGroundColor Red; write-Host $_.Exception.Message }
+Catch { 
+        LoggerLee "Could not invoke a remote connection to $server`n" warning; 
+        LoggerLee "$_.Exception.Message" error        
+      }
 } 
-wait-job -Name StartPoolz -timeout $JobTimeout | Out-Null
-Receive-Job -Name StartPoolz
-Remove-Job StartPoolz | Out-Null   
-}
+
+	#Start of Jobs retrieval
+	        $jobs = get-job # | wait-job -timeout 120
+            foreach ($job in $jobs){
+		    WaitForJob $job.name "Completed"
+            $jobresult = $job | receive-job
+
+            if ($jobresult.success -eq $true) 
+				{
+					#LoggerLee -text "Success on $($jobresult.serv)" warning;
+					LoggerLee -text "$($jobresult.message)" success
+				}
+
+            else 
+				{
+					LoggerLee "This was a failure on $($jobresult.serv)" warning;
+					LoggerLee "$($jobresult.message)`n`n" error  
+				} }	
+				
+				
 # Clears or resets variables
 $accounts = $null 
-}
+remove-job *
+}}
+
 
 
 
@@ -490,6 +711,8 @@ $accounts = $null
 ########################################
 function Set-WindowsServicesCreds
 {
+LoggerLee "Changing Passwords for any Windows services that are using the service accounts...`n" Warning
+Get-Accounts
 
 ### Grabs the accounts to be changed in the global variable of $accounts
 $passwords = ConvertFrom-Csv $accounts # Acquired from parent function
@@ -500,12 +723,18 @@ $newpassword = ConvertTo-SecureString -String $newpwd1 -AsPlainText -Force
 
 Foreach ($server in $SPServers)
 {
-#Write-Host "`n`n`n`nInitiating remote connection to $server...`n" -ForegroundColor DarkGreen -BackgroundColor Cyan
+Try {
 $SessionOption = New-PSSessionOption -IncludePortInSPN
 Invoke-Command -ComputerName "$server" -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {
 
-#Write-Host "`nConnection to $Using:server established!`n" -ForegroundColor Green
-Write-Host "`n`nChecking for services that use the account: $Using:username on $Using:server `n" -ForegroundColor Black -BackgroundColor White
+			$result = [PSCustomObject]@{
+            Success = $false
+            Message = $null
+            Completed = $false
+            Serv = $using:server
+               } 
+
+$result.message += "Checking for services that use the account: $Using:username on $Using:server `n"
 
 $WinServices = Get-CimInstance win32_service | Where {$_.StartName -eq "$Using:username"}
 
@@ -516,41 +745,63 @@ if($WinServices)
 			if($s) 
 				{
 				
-				# The CimMethod is not smart and does not know which property of a value to pull. They must be specified or
-				# or the command will fail without notice or feedback. A successful command will generate a '0' status code in the out-file
 					$serv = $s.Name # Must use short name and cannot use the '$Using:' method in CIM commands
 					$pass = $Using:newpwd1 # Cannot use '$Using:' and Encrypted password for CIM methods **CONFIRMED**
 						
 					Try
 						{   
-							Write-Host "Changing password for"$s.Name"to $Using:newpwd1 on $Using:server" -BackgroundColor DarkMagenta -ForegroundColor Green
-							Invoke-CimMethod -Name Change -Arguments @{StartPassword="$pass"} -Query "Select * from Win32_service where Name='$serv'" | out-file "c:\allowed\scripts\CIMresults.txt" #Verify a '0' status code in this file if necessary (0 means successful)	
-																		
-							Write-Host ""
+							$result.message += "Changing password for $($s.Name) to $Using:newpwd1 on $Using:server`n  ";
+							Invoke-CimMethod -ErrorAction stop -Name Change -Arguments @{StartPassword="$pass"} -Query "Select * from Win32_service where Name='$serv'" | out-file "c:\allowed\scripts\CIMresults.txt" ; #Verify a '0' status code in this file if necessary (0 means successful)	
+							$result.message += "Completed Successfully!`n`n";	
+							$result.success = $true 	
 						}
 						
-					Catch
-						{
-							Write-Host "No-Go on the password Change";
-							write-Host $_.Exception.Message
-						}
-				} #End of if
-	} #End of foreach ($s in $WinServices)   
+					 Catch
+					 {
+					        $result.message += "*******Action Failed*********** `n";
+							$result.message += $_.Exception.Message;
+							$result.success = $false 
+					 }	
+				}
+		} 
+}  
 
-Exit-PSSession
-} # End of If
-else {Write-Host "No Windows services to update on $Using:server`n" -ForegroundColor Yellow}
-} -AsJob -JobName SetServCredz | Out-Null # End of Invoke / -ScriptBlock
-} # End of Foreach ($server in $SPServers)
-wait-job -Name SetServCredz -timeout $JobTimeout | Out-Null
-Receive-Job -Name SetServCredz
-Remove-Job SetServCredz | Out-Null
-} # End of $passwords | foreach
+Else {
+         $result.success = $true;
+         $result.message += "No Action to take on $using:server `n`n`n"
+     }
 
+$result
 
-} # End of function Set-WindowsServicesCreds
+} -AsJob | Out-Null
+}
+Catch { 
+        LoggerLee "Could not invoke a remote connection to $server`n" warning; 
+        LoggerLee "$_.Exception.Message" error        
+      }
+} 
 
+	#Start of Jobs retrieval
+	        $jobs = get-job # | wait-job -timeout 120
+            foreach ($job in $jobs){
+		    WaitForJob $job.name "Completed"
+            $jobresult = $job | receive-job
 
+            if ($jobresult.success -eq $true) 
+				{
+					LoggerLee -text "$($jobresult.message)" success
+				}
+
+            else 
+				{
+					LoggerLee "This was a failure on $($jobresult.serv)" warning;
+					LoggerLee "$($jobresult.message)`n`n" error  
+				} }					
+				
+# Clears or resets variables
+$accounts = $null 
+remove-job *
+}}
 
 
 
@@ -563,8 +814,7 @@ function Restart-WindowsServices
 #Get List of accounts
 $accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
 
-Write-Host "`n`n`nRestarting Windows services...." -BackGroundColor White -ForeGroundColor Blue
-Write-Host "`nPlease be patient...." -ForeGroundColor Yellow
+LoggerLee "`n`n`nRestarting Windows services....`n`n" warning
 
 #Loops a list of user accounts to check on each server 
 $passwords = ConvertFrom-Csv $accounts # Acquired from parent function
@@ -572,10 +822,19 @@ $passwords | foreach {
 $username = $_.Username
 
 foreach ($srv in $SPServers)
-    {        
+    {   
+    
+    Try {     
         #Write-Host "`n`n`n`nConnecting to $srv to check for stopped services using $username...`n" -ForegroundColor DarkGreen -BackgroundColor Cyan
         $SessionOption = New-PSSessionOption -IncludePortInSPN
         Invoke-Command -ComputerName $srv -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {
+
+        	$result = [PSCustomObject]@{
+            Success = $false
+            Message = $null
+            Completed = $false
+            Serv = $using:srv
+               } 
        
         $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.State -eq "Running") -and ($_.StartMode -ne "Disabled") )}
          
@@ -588,30 +847,56 @@ foreach ($srv in $SPServers)
 					  
 							Try 
 									{
-										Restart-Service -DisplayName $service -ErrorAction Continue; 
-										Write-Host "`nRestarted $service on $Using:srv" -ForeGroundColor Green #-BackgroundColor Green  
-										#Write-Color -text "`nRestarted " , "$service " , "on $Using:srv" -Color Green,Yellow,White
+        								Restart-Service -DisplayName $service -ErrorAction Stop; 
+										$result.message += "`nSuccessfully Restarted '$service' on $Using:srv `n`n" ;
+                                        $result.success = $true 	
 									}
 
 							Catch 
 									{
-										Write-Host "`n`nService could not be restarted on "$srv":" -ForegroundColor Red;
-										write-Host $_.Exception.Message				
+										$result.message += "`n`nService could not be restarted on $using:srv" 
+							            $result.message += $_.Exception.Message;
+							            $result.success = $false 			
 									}                       
 						}			
                 }	
 				
-        else {}
+Else {
+         $result.success = $true;
+         $result.message += "No Action to take on $using:srv `n`n`n"
+     }
 
-Exit-PSSession		
+$result
 
-} -AsJob -JobName RestartServz | Out-Null
+} -AsJob | Out-Null
 }
-wait-job -Name RestartServz -timeout $JobTimeout | Out-Null
-Receive-Job -Name RestartServz
-Remove-Job RestartServz | Out-Null
-}
-}
+Catch { 
+        LoggerLee "Could not invoke a remote connection to $srv " warning; 
+        LoggerLee "$_.Exception.Message" error        
+      }
+} 
+
+	#Start of Jobs retrieval
+	        $jobs = get-job # | wait-job -timeout 120
+            foreach ($job in $jobs){
+		    WaitForJob $job.name "Completed"
+            $jobresult = $job | receive-job
+
+            if ($jobresult.success -eq $true) 
+				{
+					LoggerLee -text "$($jobresult.message)" success
+				}
+
+            else 
+				{
+					LoggerLee "This was a failure on $($jobresult.serv)" warning;
+					LoggerLee "$($jobresult.message)`n`n" error  
+				} }					
+				
+# Clears or resets variables
+$accounts = $null 
+remove-job *
+}}
 
 
 
@@ -620,11 +905,11 @@ Remove-Job RestartServz | Out-Null
 ########################################
 function Recycle-AppPools
 {
+remove-job *
 #This may need to be modified to match whichever configuration is being used. This should be assigned as a paramater above
 $accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
 
-Write-Host "`n`n`nRecycling / Restarting any SharePoint AppPools...." -BackGroundColor White -ForeGroundColor Blue
-Write-Host "`nPlease be patient...." -ForeGroundColor Yellow
+LoggerLee "`nRecycling / Restarting any SharePoint AppPools....`n`n" 
 
 $accounts = ConvertFrom-Csv $accounts 
 $accounts | foreach {
@@ -632,11 +917,18 @@ $username = $_.Username #Pulled from the Username column
 
 #Pulled from a global variable-function that programatically pulls the SharePoint servers. Can be done via array
 Foreach ($server in $SPServers) 
-{
-	
+{	
 Try {
         $SessionOption = New-PSSessionOption -IncludePortInSPN #Forces the port specified in the SPN
         Invoke-Command -ComputerName $server -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock { #Uses the session created above using the port in the SPN
+
+        	$result = [PSCustomObject]@{
+            Success = $false
+            Message = $null
+            Completed = $false
+            Serv = $using:server
+               } 
+
         Import-Module WebAdministration
  
 	        # Pulls the app pool list based on the credentials and whether it is stopped. 
@@ -644,7 +936,7 @@ Try {
 
 		          $Pools = $applicationPools.name # Not sure why this is here to be honest. Not used anywhere but left in case it's ever needed
 		  
-			        if($applicationPools) # Only runs the below process if there are any app pools to run against (if not null)
+			        if($applicationPools) # Only runs the below process if there are any app pools to run against 
 				        { 				 
 					        foreach($pool in $applicationPools)
 					           {
@@ -654,33 +946,51 @@ Try {
 
 								        Try 
 									         {
-										        (Restart-WebAppPool -ErrorAction Continue -Name "$AppPool");
-										        Write-Host "`nRecycled $AppPool on $Using:server" -ForegroundColor White -BackGroundColor Black								
+										            (Restart-WebAppPool -ErrorAction Stop -Name "$AppPool");
+                                                    $result.message += "`nRecycled $AppPool on $Using:server`n" ;    	
+							                        $result.success = $true 										        							
 									          }
-
-								         Catch
-									          {
-										        Write-Host "`n`nNo-Go Recyle for $AppPool on $Using:server" -ForegroundColor Red;
-										        write-Host $_.Exception.Message
-									          }
+								        Catch
+					                         {
+					                              $result.message += "`n*******Action Failed*********** `n";
+							                      $result.message += $_.Exception.Message;
+							                      $result.success = $false 
+					                         }	
 						        }
 				        }
-
-			        Else {}
-
-Exit-PSSession
-} -AsJob -JobName RecyclePoolz | Out-Null
+                        Else 
+							{
+                                 $result.success = $true;
+                                 $result.message += "No Action to take on $using:server `n`n`n"
+                             }
+$result
+} -AsJob | Out-Null
 }
-Catch { Write-Host "Could not invoke a remote command to $server!`n" -ForeGroundColor Red; write-Host $_.Exception.Message }
+Catch { 
+        LoggerLee "Could not invoke a remote connection to $server`n" warning; 
+        LoggerLee "$_.Exception.Message" error        
+      }
 } 
-wait-job -Name RecyclePoolz -timeout $JobTimeout | Out-Null
-Receive-Job -Name RecyclePoolz
-Remove-Job RecyclePoolz | Out-Null   
-}
+	#Start of Jobs retrieval
+	        $jobs = get-job # | wait-job -timeout 120
+            foreach ($job in $jobs){
+		    WaitForJob $job.name "Completed"
+            $jobresult = $job | receive-job
+
+            if ($jobresult.success -eq $true) 
+				{
+					LoggerLee -text "$($jobresult.message)" success
+				}
+
+            else 
+				{
+					LoggerLee "This was a failure on $($jobresult.serv)" warning;
+					LoggerLee "$($jobresult.message)`n`n" error  
+				} }									
 # Clears or resets variables
 $accounts = $null 
-}
-
+remove-job *
+}}
 
 
 ###########################################################################
@@ -688,7 +998,7 @@ $accounts = $null
 ###########################################################################
 function UpdateSPManagedAccounts
 {
-Write-Host "`n`n Starting process to change passwords in the SharePoint Farm itself!`n" -BackgroundColor White -ForeGroundColor Blue
+LoggerLee "`n`n Starting process to change passwords in the SharePoint Farm itself...`n`n" warning
 
 	if ($FunctionCheck -eq "yes") {
 # Grabs the accounts to be changed in the tempcsv and changes the passwords 
@@ -702,23 +1012,24 @@ if ($newpassword)
 {
 Try		{
 			# This assumes that the passwords are already changed in AD. 
-			Write-Host ìChanging SharePoint passwords for $username to $newpwd1î -ForegroundColor Blue -BackgroundColor Yellow;
-			Set-SPManagedAccount -Identity $username -ExistingPassword $newpassword -Confirm:$false -UseExistingPassword:$true -ErrorAction Continue
+			LoggerLee -text ‚ÄúChanging SharePoint passwords for $username to $newpwd1`n‚Äù -logType info -linebreak newline
+			Set-SPManagedAccount -Identity $username -ExistingPassword $newpassword -Confirm:$false -UseExistingPassword:$true -ErrorAction Stop 
+			LoggerLee "Password Changed Successfully.`n" success
 		}
 
 Catch 	{
-			Write-Host "Error received updating the service account via Managed Accounts! Please review the logs and try again"
-			write-Host $_.Exception.Message 
-			pause
+			LoggerLee "Error received updating the service account via Managed Accounts! Please review the logs and try again`n" warning;
+			LoggerLee "$_.Exception.Message" error
+			exit
 		}
 } # End If
 }
-Write-Host "`n`nPausing for 1-minute to give the Timer Services time to process the changes across the farm..." -ForeGroundColor White
+LoggerLee "`n`nPausing for 1-minute to give the Timer Services time to process the changes across the farm..." info
 Start-Sleep 60
 }
 else 
 	{
-		Write-Host "This function must be launched from another function. Cancelling Action!" -ForeGroundColor Red;
+		LoggerLee "`nThis function must be launched from another function. Cancelling Action!" error;
 		Exit
 	} 
 }## End of UpdateSPManagedAccounts function
@@ -732,12 +1043,11 @@ function Check-LockedOut
 $ADaccounts = (Import-Csv $InputFile | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
 $users = ConvertFrom-Csv $ADaccounts 
 
-Write-Host "`n`nChecking Account lockout status..." -ForeGroundColor Blue -BackGroundColor White
+LoggerLee "`n`nChecking Account lockout status...`n" Warning
 	
 # Removes the domain and back-slash	from the username
 Foreach ($user in $users)
 		{
-
             $un = $user.username.split('\')[-1]
             $pw = $user.newpassword
 
@@ -745,25 +1055,22 @@ Foreach ($user in $users)
 				
 					if($locked) 
 						{
-							write-host "`n$un is Locked out!`n" -ForeGroundColor Red
-							Write-Host "Attempting to unlock the account..." -ForeGroundColor Yellow
+							LoggerLee "`n$un is Locked out!`n" Warning
+							LoggerLee "Attempting to unlock the account..." info
 								Try 
 										{
-											Unlock-ADAccount -Identity $un -ErrorAction Continue;
-											Write-Host "`nAccount $un is now unlocked!`n`n" -ForegroundColor Green						
+											Unlock-ADAccount -Identity $un -ErrorAction Stop;
+											LoggerLee "`nAccount $un is now unlocked!`n`n" success						
 										}
 								Catch
 										{
-											Write-Host "Could not unlock the account. Verify and manually update the password in AD!`n`n" -BackGroundColor Yellow ForeGroundColor Red
-											Pause
-										}
-								
+											LoggerLee "`nCould not unlock the account. Verify and manually update the password!`n`n" warning
+										}	LoggerLee "$_.Error.Message" error			
 						}
 					
-					else {write-host "`n$un is not locked out!`n" -foregroundcolor Green}
+					else {LoggerLee "`n$un is not locked out!" info}
 		}
 }
-
 
 
 ###########################################################
@@ -774,7 +1081,7 @@ function UpdateAD
 
 # Imports AD functionality
 Import-Module ActiveDirectory
-write-host "`n`nAD module imported..."
+LoggerLee "`nAD module imported...`n" low
 
 # Required because pulling directly from using the 'Global' method fails every time
 if($Global:accounts) {$accounts = $Global:accounts}
@@ -782,7 +1089,7 @@ if($Global:accounts) {$accounts = $Global:accounts}
 # Pulls in the specific accounts from the temp csv file to be changed
 $users = ConvertFrom-Csv $accounts 
 
-Write-Host "Starting AD password changes..." -ForeGroundColor Blue -BackGroundColor Yellow
+LoggerLee "Starting AD password changes...`n`n" info
 	
 # Changes the AD passwords after removing the domain and back-slash	
 Foreach ($user in $users)
@@ -792,39 +1099,523 @@ Foreach ($user in $users)
 
 					Try {
 							$dn = Get-aduser $un | select -ExpandProperty DistinguishedName 
-							write-host "Changing passwords in AD for $un to $pw`n" -ForegroundColor DarkBlue -BackgroundColor DarkYellow
+							LoggerLee "Changing passwords in AD for $un to $pw...`n" info
 							Set-ADAccountPassword $dn -Reset -NewPassword (ConvertTo-SecureString -AsPlainText $pw -Force) -ErrorAction Stop 
+							LoggerLee "Password change successful`n" success
 						}
 			
 		        Catch 	{
-					        Write-Host "`n`nError changing passwords in AD. Manually change the passwords in ADUC and then continue with the process once completed." -ForeGroundColor red -BackGroundColor Yellow;
-					        pause						
+					        LoggerLee "`n`nError changing passwords in AD. Manually change the passwords in ADUC and then continue with the process once completed.`n" error
+							LoggerLee "$_.Exception.Message" error		
+							
 				        }		
 		}
 		
-	Write-Host "`nWaiting for AD changes to Synchronize`n`n" -ForeGroundColor Yellow -BackGroundColor Red;
+	LoggerLee "`nWaiting for AD changes to Synchronize`n`n" warning;
 	Start-Sleep 30;
+	LoggerLee "Sync Complted`n" info
 	#Pause
 	#cls
 }
+	 
+ 
+ ########################################
+ # (SharePoint) Stop Timer Service ######
+ ########################################
+ function StopTimerServices
+ {
+	LoggerLee "`n`nStopping and disabling the SharePoint Timer service!`n" warning
+		  foreach ($server in $SPServers) 
+			{
+				Try 
+						{
+							Set-Service -Name "SPTimerV4" -Status Stopped -StartupType Disabled -PassThru -ComputerName $server | Out-Null -ErrorAction Stop;
+							LoggerLee "Timer Service Stopped and Disabled on $server" success
+						}
 
+				Catch 
+						{
+							LoggerLee "`nCould not stop the Timer service on $server. Manually disable and stop it!`n" warning;
+							LoggerLee "$_.Exception.Message" error
+						}
+			} 
+} 
+ 
+ 
+ 
+########################################
+# (SharePoint) Start Timer Service #####
+########################################
+function StartTimerServices
+{
+LoggerLee "`n`nRESTARTING TIMER SERVICE ON ALL OF THE SERVERS!" info
 
-
-### Acquires required accounts for SharePoint farm ###
-function Get-Accounts
+foreach ($server in $SPServers) 
 	{
-		Write-Host "`n`nBuilding list of AD accounts...`n`n" -ForegroundColor Yellow
-		if($Global:accounts)
-			{$Global:accounts = $null}
+		Try 
+				{
+					Set-Service -Name "SPTimerV4" -StartupType Automatic -Status Running -PassThru -ComputerName $server | Out-Null -ErrorAction Stop;
+					LoggerLee "Service Enabled and Started on $server`n" success    
+				}
+
+		Catch 
+				{
+					LoggerLee "`n`nService could not be started and enabled on $server" warning;
+					LoggerLee "$_.Exception.Message" error
+				
+				}
+	}
+} 
+ 
+
+ 
+########################################################
+#########  Start any Stopped Windows Services ##########
+########################################################
+
+function Check-WindowsServices
+{
+
+#Get List of accounts to check for stopped services
+$accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
+
+LoggerLee "`n`nChecking for any Windows Services that are enabled but not running....`n`n" info
+
+
+#Loops a list of user accounts to check on each server for stopped services
+$passwords = ConvertFrom-Csv $accounts # Acquired from parent function
+$passwords | foreach {
+$username = $_.Username
+
+foreach ($srv in $SPServers)
+    {
+    Try {
+        $SessionOption = New-PSSessionOption -IncludePortInSPN
+        Invoke-Command -ComputerName $srv -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {
+            
+            $result = [PSCustomObject]@{
+            Success = $false
+            Message = $null
+            Completed = $false
+            Serv = $using:srv
+               }        
+        $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.State -ne "Running") -and ($_.StartMode -ne "Disabled") )}
+         
+        if($WinServices)
+                {   
+					foreach ($srvc in $WinServices)	
+						{
+							$service = $srvc.DisplayName
+							$svc = $srvc.Name
+					  
+							Try 
+									{
+										Set-Service -Name "$svc" -StartupType Automatic -Status Running -PassThru | Out-Null -ErrorAction Stop;
+										$result.message += "`nService $service Enabled and Started on $Using:srv" ;
+                                        $result.success = $true 
+									}
+
+						     Catch
+					                {
+					                    $result.message += "`n*******Action Failed*********** `n";
+							            $result.message += $_.Exception.Message;
+							            $result.success = $false 
+					                 }				
+							}                        
+						}	                			
+          Else {
+                 $result.success = $true;
+                 $result.message += "No Action to take on $using:srv `n`n`n"
+               }
 		
-		Start-Sleep 10
+$result
+} -AsJob | Out-Null
+} 
+Catch { 
+        LoggerLee "Could not invoke a remote connection to $srv`n" warning; 
+        LoggerLee "$_.Exception.Message" error        
+      }
+} 
+	#Start of Jobs retrieval
+	        $jobs = get-job # | wait-job -timeout 120
+            foreach ($job in $jobs){
+		    WaitForJob $job.name "Completed"
+            $jobresult = $job | receive-job
+
+            if ($jobresult.success -eq $true) 
+				{
+					LoggerLee -text "$($jobresult.message)" success
+				}
+
+            else 
+				{
+					LoggerLee "This was a failure on $($jobresult.serv)" warning;
+					LoggerLee "$($jobresult.message)`n`n" error  
+				} }					
+				
+# Clears or resets variables
+$accounts = $null 
+remove-job *
+}}
+ 
+ 
+############################################################
+# Scheduled Tasks Password Change
+############################################################ 
+function ScheduledTasksChange 
+{
+Get-Accounts
+### Grabs the accounts to be changed in the global variable of $accounts
+$passwords = ConvertFrom-Csv $accounts # Acquired from parent function
+$passwords | foreach {
+$newpwd1 = $_.NewPassword
+$username = $_.Username
+$newpassword = ConvertTo-SecureString -String $newpwd1 -AsPlainText -Force
+
+Foreach ($server in $SPServers)
+{
+    Try 
+       {
+        $SessionOption = New-PSSessionOption -IncludePortInSPN
+        Invoke-Command -ComputerName "$server" -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {
+
+        	    $result = [PSCustomObject]@{
+                Success = $false
+                Message = $null
+                Completed = $false
+                Serv = $using:server
+                   } 
+
+	    #Gets the tasks using any usernames in the CSV for credentials
+	    $ScheduledTasks = Get-ScheduledTask | Where-Object { $_.Principal.UserId -eq $using:username }
+
+	if ($ScheduledTasks)
+		{
+			foreach ($task in $ScheduledTasks)
+				{
 		
-		$Global:accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
+					Try
+							{	# Changes the password for the scheduled task
+								Set-ScheduledTask -ErrorAction stop -TaskName "$task" -User $Using:username -Password $using:newpassword 
+								$result.message += "`nScheduld Task $task credentials have been updated on $Using:server" 
+                                $result.success = $true  
+							}
+							
+					Catch
+							{
+								$result.message =+ "`nScheduled Task $task could not be updated on $using:server`n" ;
+								$result.message += $_.Exception.Message;
+							    $result.success = $false 	
+							}
+				}
+		}
+		
+                   Else 
+				        {
+                           $result.success = $true;
+                           $result.message += "No Action to take on $using:server `n`n`n"
+                        }	
+		
+$result
+} -AsJob | Out-Null
+}
+Catch { 
+        LoggerLee "Could not invoke a remote connection to $server`n" warning; 
+        LoggerLee "$_.Exception.Message" error        
+      }
+} 
+	#Start of Jobs retrieval
+	        $jobs = get-job # | wait-job -timeout 120
+            foreach ($job in $jobs){
+		    WaitForJob $job.name "Completed"
+            $jobresult = $job | receive-job
+
+            if ($jobresult.success -eq $true) 
+				{
+					LoggerLee -text "$($jobresult.message)" success
+				}
+
+            else 
+				{
+					LoggerLee "This was a failure on $($jobresult.serv)" warning;
+					LoggerLee "$($jobresult.message)`n`n" error  
+				} }					
+				
+# Clears or resets variables
+$accounts = $null 
+remove-job *
+}}
+ 
+  
+############################################################
+# Manually Change passwords on SQL Server 
+############################################################
+function SQLChanges 
+{
+LoggerLee "`n`nChanging SQL service account passwords!" Warning
+LoggerLee "`nSome of this process is manual so please pay attention...`n`n" info
+
+start-sleep 5
+
+#$ChangePasswords = Read-Host 'Are you sure you want to change the SQL Service Account passwords? Yes or No. (Default no) '  
+$SQLaccounts = (Import-Csv $InputFile | Where {(($_ -match "mssql") -or ($_ -match "agent") -or ($_ -match "ssas") -and ($_ -match "Username") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
+
+# Imports AD functionality
+Import-Module ActiveDirectory
+
+# Pulls in the specific accounts from the temp csv file to be changed
+$users = ConvertFrom-Csv $SQLaccounts
+
+LoggerLee "`n`nStarting AD password changes for SQL related accounts...`n`n`n" Warning
+	
+# Changes the AD passwords after removing the domain and back-slash	
+Foreach ($user in $users)
+		{
+			
+            $un = $user.username.split('\')[-1]
+            $pw = $user.newpassword
+			
+			Try {
+					$dn = Get-aduser $un | select -ExpandProperty DistinguishedName 
+					LoggerLee "Changing passwords in AD for $un to $pw..." info
+					Set-ADAccountPassword $dn -Reset -NewPassword (ConvertTo-SecureString -AsPlainText $pw -Force) -ErrorAction Stop 
+                    LoggerLee "Password successfully Changed.`n`n`n" success
+                            
+				}
+			
+		    Catch 	
+					{
+					    LoggerLee "`n`nError changing passwords in AD. Please change the $un password manually in AD and then press Enter to Continue`n" warning; 
+                        LoggerLee "$_.Exception.message`n`n" error
+					    Pause							
+				    }		
+		}		
+		LoggerLee "`nManually Change the passwords in SQL Server Configuration Manager on the SQL Server..." warning ;
+		LoggerLee "Press ENTER to continue after the passwords on the SQL server have been changed!`n`n" info;
+		pause
+		
+		LoggerLee "Task for SQL server password changes end" low
 	}
 
+
+
+
+###############################################
+# (SharePoint) Get list of SharePoint servers
+###############################################
+function ListSharePointServers
+	{ 
+	cls
+	if($AppServers)
+	{Write-Host "Application Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
+	Write-Host "$APPServers" -ForeGroundColor Green}
 	
+	if($SSRSservers)
+	{Write-Host "SSRS Reporting Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
+	Write-Host "$SSRSservers" -ForeGroundColor Green}
+	
+	if($SearchServers)
+	{Write-Host "Search Service Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
+	Write-Host "$SearchServers" -ForeGroundColor Green}
+	
+	if($CacheServers)
+	{Write-Host "Cache Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
+	Write-Host "$CacheServers" -ForeGroundColor Green}
+	
+	if($EXCLServers)
+	{Write-Host "Excel Reporting Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
+	Write-Host "$EXCLServers" -ForeGroundColor Green}
+	
+	if($WebServers)
+	{Write-Host "Web Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
+	Write-Host "$WebServers" -ForeGroundColor Green}
+	
+	if($DBServers)
+	{Write-Host "SQL Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
+	Write-Host "$DBServers" -ForeGroundColor Green}
+	
+	Write-Host "`n********************************************************"
+	Write-Host "********************************************************`n"
+	}
+	
+	
+
+#########################################
+# List Affected Windows Services
+#########################################
+function ListAffected-WindowsServices
+{
+cls
+#Get List of accounts
+$accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
+
+LoggerLee "`nAcquiring list of Windows Services that could be affected by other aspects of this script....`n"
+LoggerLee "Please be patient....`n" low
+
+#Loops a list of user accounts to check on each server 
+$passwords = ConvertFrom-Csv $accounts # Acquired from parent function
+$passwords | foreach {
+$username = $_.Username
+
+foreach ($srv in $SPServers)
+    {        
+        #Write-Host "`nChecking for services on $srv`n" -ForegroundColor DarkGreen
+
+Try {
+        $SessionOption = New-PSSessionOption -IncludePortInSPN
+        Invoke-Command -ComputerName $srv -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {
+                $result = [PSCustomObject]@{
+                Success = $false
+                Message = $null
+                Completed = $false
+                Serv = $using:srv
+                   } 
+
+        $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.StartMode -ne "Disabled") )}
+         
+        if($WinServices)
+                {  
+					$result.message += "`n$Using:srv is using the following:`n"
+					foreach ($srvc in $WinServices)	
+						{
+							$service = $srvc.DisplayName;
+							$svc = $srvc.Name;
+							$result.message += "`nFound $service using the account $Using:username `n";
+                            $result.success = $true     					                   
+						}				
+			    }	
+				
+         Else    {$result.success = $null; break  }	
+
+$result
+} -AsJob | Out-Null
+}
+Catch { 
+        LoggerLee "Could not invoke a remote connection to $srv`n" warning; 
+        LoggerLee "$_.Exception.Message" error        
+      }
+} 
+	#Start of Jobs retrieval
+	        $jobs = get-job | wait-job -timeout 120
+            foreach ($job in $jobs){
+		   # WaitForJob $job.name "Completed"
+            $jobresult = $job | receive-job
+
+            if ($jobresult.success -eq $true) 
+				{
+					LoggerLee -text "$($jobresult.message)" success
+				}
+            else 
+				{
+                    if ($jobresult.success -eq $false)
+                        {
+				        	LoggerLee "This was a failure on $($jobresult.serv)" warning;
+				        	LoggerLee "$($jobresult.message)`n`n" error  
+                        }
+				} }					
+				
+# Clears or resets variables
+$accounts = $null 
+remove-job *
+}}
+
+
+########################################
+# List Affected AppPools
+########################################
+function List-AppPools
+{
+cls
+#This may need to be modified to match whichever configuration is being used. This should be assigned as a paramater above
+#$accounts = (Import-Csv $InputFile | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
+
+$accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
+
+LoggerLee "`nAcquiring list of IIS App Pools that could be affected by other aspects of this script....`n"
+LoggerLee "Please be patient....`n" low 
+
+$accounts = ConvertFrom-Csv $accounts 
+$accounts | foreach {
+$username = $_.Username #Pulled from the 'Username' column
+
+#Only uses the Web Servers
+Foreach ($server in $SPServers) #| Where {$_ -match "WB"})
+{
+
+Try {
+        $SessionOption = New-PSSessionOption -IncludePortInSPN #Forces the port specified in the SPN
+        Invoke-Command -ComputerName $server -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock { #Uses the session created above using the port in the SPN
+
+                $result = [PSCustomObject]@{
+                Success = $false
+                Message = $null
+                Completed = $false
+                Serv = $using:server
+                   } 
+
+        Import-Module WebAdministration
+ 
+		Try 
+			{	
+	        # Pulls the app pool list based on the credentials and whether it is stopped. 
+	        $applicationPools = Get-ChildItem IIS:\AppPools -ErrorAction stop | where { ($_.processModel.userName -eq "$Using:username") }# -and ($_.state -eq "Started") } 
+                if ($applicationPools)
+                    {
+                        $result.message +=  "`n$Using:server is using the following:`n"
+                        foreach ($pool in $applicationpools)
+                            {
+                                $AppPool = $pool.name; 				
+								$result.message =  "Found pool '$AppPool' using the account $Using:username on $using:server" ;
+                                $result.success = $true   
+                            }
+                    }
+
+                 Else    {$result.success = $null; break  }	
+			}
+			
+		Catch
+			{
+				$result.message += "`nCould not retrieve list of App Pools from $using:server`n" ;
+				$result.message += "$_.Exception.Message";
+			    $result.success = $false 	
+		    }			        
+
+$result
+} -AsJob | Out-Null
+}
+Catch { 
+        LoggerLee "Could not invoke a remote connection to $srv`n" warning; 
+        LoggerLee "$_.Exception.Message" error        
+      }
+} 
+	#Start of Jobs retrieval
+	        $jobs = get-job | wait-job -timeout 120
+            foreach ($job in $jobs){
+		    #WaitForJob $job.name "Completed"
+            $jobresult = $job | receive-job
+
+            if ($jobresult.success -eq $true) 
+				{
+					LoggerLee -text "$($jobresult.message)" success
+				}
+
+            else 
+				{
+                    if ($jobresult.success -eq $false)
+                        {
+				        	LoggerLee "This was a failure on $($jobresult.serv)" warning;
+				        	LoggerLee "$($jobresult.message)`n`n" error  
+                        }
+				} }					
+				
+# Clears or resets variables
+$accounts = $null 
+remove-job *
+}}
+
+
 ####################################################
-# (SharePoint) Service Accounts Password Update
+# Main Password Change Function of functions
 ####################################################
 function ChangeSPServiceAccountPasswords #This is the primary function for SharePoint Password changes 
 {
@@ -874,6 +1665,9 @@ if (($ChangePasswords -eq 'yes') -or ($ChangePasswords -eq 'y'))
 
 		# Update Windows Services
 		Set-WindowsServicesCreds
+		
+		# Update Scheduled TASKS
+		#ScheduledTasksChange 
 
 		# Updates the App Pools
 		UpdateAppPools
@@ -896,338 +1690,8 @@ else
 	{
 		Write-Host "`n`nPassword change process cancelled!" -ForeGroundColor Red; 
 	}
-
-#Stop-Transcript #Stops the current log file process
-					#(Get-Item ñPath $Logfile).Encrypt() # Broken on Prod for some reason
-#cipher /A $logfile #Encrypts the log file for the user running this script only. 
-}
- 
- 
- ########################################
- # (SharePoint) Stop Timer Service ######
- ########################################
- function StopTimerServices
- {
-	Write-Host "`n`nStopping and disabling the SharePoint Timer service!" -ForeGroundColor Yellow
-		  foreach ($server in $SPServers) 
-			{
-				Try 
-						{
-							Set-Service -Name "SPTimerV4" -Status Stopped -StartupType Disabled -PassThru -ComputerName $server | Out-Null -ErrorAction Continue
-							Write-Host "Timer Service Stopped and Disabled on $server" -ForeGroundColor Green
-						}
-
-				Catch 
-						{
-							Write-Host "`nCould not stop the Timer service on $server. Manually disable and stop it!" -ForeGroundColor Red;
-							write-Host $_.Exception.Message
-						}
-			} 
-} 
- 
- 
- 
- 
-########################################
-# (SharePoint) Start Timer Service #####
-########################################
-function StartTimerServices
-{
-Write-Host "`n`nRESTARTING TIMER SERVICE ON ALL OF THE SERVERS!" -ForegroundColor Yellow
-
-foreach ($server in $SPServers) 
-	{
-		Try 
-				{
-					Set-Service -Name "SPTimerV4" -StartupType Automatic -Status Running -PassThru -ComputerName $server | Out-Null -ErrorAction Continue;
-					Write-Host "Service Enabled and Started on $server" -ForeGroundColor Green     
-				}
-
-		Catch 
-				{
-					Write-Host "`n`nService could not be started and enabled on "$server":" -ForegroundColor Red;
-					write-Host $_.Exception.Message
-				
-				}
-	}
-} 
- 
-
- 
-#################################################################
-######### Check and Start any Stopped Windows Services ##########
-#################################################################
-
-function Check-WindowsServices
-{
-
-#Get List of accounts to check for stopped services
-$accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
-
-Write-Host "`n`n`nChecking for any Windows Services that are enabled but not running...." -BackGroundColor White -ForeGroundColor Blue
-Write-Host "`nThis may take some time. Please be patient...." -ForeGroundColor Yellow
-
-#Loops a list of user accounts to check on each server for stopped services
-$passwords = ConvertFrom-Csv $accounts # Acquired from parent function
-$passwords | foreach {
-$username = $_.Username
-
-foreach ($srv in $SPServers)
-    {
-
-        #Write-Host "`n`n`n`nConnecting to $srv to check for stopped services using $username...`n" -ForegroundColor DarkGreen -BackgroundColor Cyan
-        $SessionOption = New-PSSessionOption -IncludePortInSPN
-        Invoke-Command -ComputerName $srv -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {
-       
-
-        $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.State -ne "Running") -and ($_.StartMode -ne "Disabled") )}
-     
-    
-        if($WinServices)
-                {   
-
-					foreach ($srvc in $WinServices)	
-						{
-							$service = $srvc.DisplayName
-							$svc = $srvc.Name
-					  
-							Try 
-									{
-										Set-Service -Name "$svc" -StartupType Automatic -Status Running -PassThru | Out-Null -ErrorAction Continue;
-										Write-Host "`nService $service Enabled and Started on $Using:srv" -ForeGroundColor Blue -BackgroundColor Yellow     
-									}
-
-							Catch 
-									{
-										Write-Host "`n`nService could not be started and enabled on "$srv":" -ForegroundColor Red;
-										write-Host $_.Exception.Message				
-									}                        
-						}			
-                }
-				
-        else {Write-Host "`nNo Services using $Using:username are stopped on $Using:srv" -ForeGroundColor Green}
-Exit-PSSession		
-} -AsJob -JobName CheckServz | Out-Null
-}
-wait-job -Name CheckServz -timeout $JobTimeout | Out-Null
-Receive-Job -Name CheckServz
-Remove-Job CheckServz | Out-Null
-}
-}
- 
-
-  
-############################################################
-# Manually Change passwords on SQL Server 
-############################################################
-function SQLChanges 
-{
-Write-Host "`n`nChanging SQL service account passwords!" -ForeGroundColor Blue -BackGroundColor White
-Write-Host "`n Some of this process is manual so please pay attention!" -ForeGroundColor Blue -BackGroundColor White
-
-#$ChangePasswords = Read-Host 'Are you sure you want to change the SQL Service Account passwords? Yes or No. (Default no) '  
-$SQLaccounts = (Import-Csv $InputFile | Where {(($_ -match "mssql") -or ($_ -match "agent") -or ($_ -match "ssas") -and ($_ -match "Username") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
-
-
-# Imports AD functionality
-Import-Module ActiveDirectory
-write-host "`n`nAD module imported..."
-
-# Pulls in the specific accounts from the temp csv file to be changed
-$users = ConvertFrom-Csv $SQLaccounts
-
-Write-Host "`n`nStarting AD password changes..." -ForeGroundColor Blue -BackGroundColor White
-	
-# Changes the AD passwords after removing the domain and back-slash	
-Foreach ($user in $users)
-		{
-			
-            $un = $user.username.split('\')[-1]
-            $pw = $user.newpassword
-			
-			Try {
-							$dn = Get-aduser $un | select -ExpandProperty DistinguishedName 
-							write-host "Changing passwords in AD for $un to $pw" -ForegroundColor DarkBlue -BackgroundColor DarkYellow
-							Set-ADAccountPassword $dn -Reset -NewPassword (ConvertTo-SecureString -AsPlainText $pw -Force) -ErrorAction Stop 
-						}
-			
-		    Catch 	
-					{
-					    Write-Host "`n`nError changing passwords in AD. Please change the $un password manually in AD and then press Enter to Continue`n" -ForeGroundColor Red;
-					    Pause							
-				    }		
-		}		
-		Write-Host `n `n'Change the passwords in SQL Server Configuration Manager on the SQL Server!' -ForeGroundColor Blue -BackGroundColor White;
-		Write-Host `n'Press ENTER to continue after the passwords on the SQL server have been changed!' `n `n -ForegroundColor Yellow;
-		pause
-		
-		Write-Host -NoNewLine `n'Passwords have been changed in the SQL server. ' `n -ForegroundColor Green
-		#RestartSQL
-
-	}
-
-
-
-
-###############################################
-# (SharePoint) Get list of SharePoint servers
-###############################################
-function ListSharePointServers
-	{ 
-	cls
-	if($AppServers)
-	{Write-Host "Application Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
-	Write-Host "$APPServers" -ForeGroundColor Green}
-	
-	if($SSRSservers)
-	{Write-Host "SSRS Reporting Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
-	Write-Host "$SSRSservers" -ForeGroundColor Green}
-	
-	if($SearchServers)
-	{Write-Host "Search Service Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
-	Write-Host "$SearchServers" -ForeGroundColor Green}
-	
-	if($CacheServers)
-	{Write-Host "Cache Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
-	Write-Host "$CacheServers" -ForeGroundColor Green}
-	
-	if($EXCLServers)
-	{Write-Host "Excel Reporting Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
-	Write-Host "$EXCLServers" -ForeGroundColor Green}
-	
-	if($WebServers)
-	{Write-Host "Web Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
-	Write-Host "$WebServers" -ForeGroundColor Green}
-	
-	if($DBServers)
-	{Write-Host "SQL Servers:" -BackgroundColor Yellow -ForeGroundColor Blue;
-	Write-Host "$DBServers" -ForeGroundColor Green}
-	
-	Write-Host "`n********************************************************"
-	Write-Host "********************************************************`n"
-	}
-	
-	
-
-	#########################################
-# List Affected Windows Services
-#########################################
-function ListAffected-WindowsServices
-{
-#Get List of accounts
-$accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
-
-Write-Host "`nPlease be patient....`n" 
-
-#Loops a list of user accounts to check on each server 
-$passwords = ConvertFrom-Csv $accounts # Acquired from parent function
-$passwords | foreach {
-$username = $_.Username
-
-foreach ($srv in $SPServers)
-    {        
-        #Write-Host "`nChecking for services on $srv`n" -ForegroundColor DarkGreen
-        $SessionOption = New-PSSessionOption -IncludePortInSPN
-        Invoke-Command -ComputerName $srv -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock {
-        $WinServices = Get-CimInstance win32_service | Where {(($_.StartName -eq "$Using:username") -and ($_.StartMode -ne "Disabled") )}
-         
-        if($WinServices)
-                {  
-					Write-Host "`n$Using:srv is using the following:" -ForegroundColor Yellow
-					foreach ($srvc in $WinServices)	
-						{
-							$service = $srvc.DisplayName
-							$svc = $srvc.Name
-							Write-Host "`nFound $service using the account $Using:username" -ForeGroundColor Green #-BackgroundColor Green     					                   
-						}
-						
-						Write-Host "`n"						
-                }	
-				
-        else {}
-
-Exit-PSSession		
-
-} -AsJob -JobName ListServz | Out-Null
-}
-wait-job -Name ListServz -Timeout 120 | Out-Null
-Receive-Job -Name ListServz
-Remove-Job ListServz | Out-Null
-}
 }
 
-
-########################################
-# List Affected AppPools
-########################################
-function List-AppPools
-{
-#This may need to be modified to match whichever configuration is being used. This should be assigned as a paramater above
-$accounts = (Import-Csv $InputFile | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
-
-#$accounts = (Import-Csv $InputFile | Where {(($_ -notmatch "mssql") -and ($_ -notmatch "agent") -and ($_ -notmatch "ssas") )} | ConvertTo-CSV -NoTypeInformation | % {$_ -replace '"',''}) | Out-String	
-
-
-Write-Host "`nPlease be patient....`n" 
-
-$accounts = ConvertFrom-Csv $accounts 
-$accounts | foreach {
-$username = $_.Username #Pulled from the 'Username' column
-
-#Only uses the Web Servers
-Foreach ($server in $SPServers | Where {$_ -match "WB"})
-{
-
-Try {
-        $SessionOption = New-PSSessionOption -IncludePortInSPN #Forces the port specified in the SPN
-        Invoke-Command -ComputerName $server -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock { #Uses the session created above using the port in the SPN
-        Import-Module WebAdministration
- 
-		Try 
-			{	
-	        # Pulls the app pool list based on the credentials and whether it is stopped. 
-	        $applicationPools = Get-ChildItem IIS:\AppPools | where { ($_.processModel.userName -eq "$Using:username") }# -and ($_.state -eq "Started") }
-			}
-			
-		Catch 
-			{
-				Write-Host "No App Pools on &Using:server"
-			}	
-		
-	  
-			        if($applicationPools) # Only runs the below process if there are any app pools to run against (if not null)
-				        { 	
-							Write-Host "`n$Using:server is using the following:" -ForegroundColor Yellow
-							
-					        foreach($pool in $applicationPools)
-					           {
-                                    # Many powershell Commandlets and commands do not like variables pulled directly from outside of the invocation
-							        $AppPool = $pool.name 				
-									Write-Host "`nFound $AppPool using the account $Using:username" -ForegroundColor White -BackGroundColor Black								
-						        }
-								
-								Write-Host "`n"
-				        }
-
-			        Else {}
-
-Exit-PSSession
-} -AsJob -JobName ListPoolz | Out-Null
-}
-Catch { Write-Host "Could not invoke a remote command to $server!`n" -ForeGroundColor Red; write-Host $_.Exception.Message }
-} 
-wait-job -Name ListPoolz -Timeout 120 | Out-Null
-Receive-Job -Name ListPoolz
-Remove-Job ListPoolz | Out-Null   
-}
-# Clears or resets variables
-}
-
-
-
-
-
-	
 
 
 	
@@ -1264,7 +1728,7 @@ Write-Host  "7.   Recycle all SharePoint specific AppPools in IIS"
 
 switch($PTask)
 		{	
-			1	{Get-Accounts; Set-WindowsServicesCreds; pause}
+			1	{Set-WindowsServicesCreds; pause}
 			2	{Get-Accounts; UpdateAppPools; pause}
 			3	{Get-Accounts; UpdateSPManagedAccounts; pause}
 			4	{Start-AppPools; pause}
@@ -1303,8 +1767,8 @@ switch($PTask)
  Write-Host  "`n#####  PASSWORD CHANGE TASKS  #####" -ForegroundColor Black -BackgroundColor White
  Write-Host  "8.   Change Service Account Passwords (SharePoint)"
  Write-Host  "9.   Encrypt CSV containing passwords"
- Write-Host  "10.  Decrypt CSV containing passwords"
- Write-Host  "`n      The following task should only be used AFTER option 6 has been completed!" -ForegroundColor Yellow
+ Write-Host  "10.  Decrypt CSV and Log file containing passwords"
+ Write-Host  "`n     The following task should only be used AFTER option 6 has been completed!" -ForegroundColor Yellow
  Write-Host  "11.  Post Password Change trouble-shooting tasks." 
 
   
@@ -1320,7 +1784,7 @@ switch($PTask)
  
  Write-Host "`n18.  Exit this script" -ForeGroundColor Cyan
  
-[int]$Task = Read-Host "`n`nSelect a task to perform on this farm"
+[int]$Task = Read-Host "`n`nSelect a task to perform"
 
 switch($Task)
 		{	
@@ -1333,7 +1797,7 @@ switch($Task)
 			7	{Check-WindowsServices; pause}
 			8	{ChangeSPServiceAccountPasswords; pause}
 			9	{Cipher /E $InputFile; pause}
-			10	{Cipher /D $InputFile; pause}
+			10	{Cipher /D $InputFile; Cipher /D $Logfile; pause}
 			11	{Post-PasswordChange}
 			12	{RestartFarm}
 			13	{RestartSQL; pause}
