@@ -13,9 +13,9 @@ Version: 3.0
 
 V 3.0 06/24/2019 -COMPLETE REWRITE-		
 		- Added logging function to both capture a log and display to the host (LoggerLee)
-			- Log file is created at first run of the script and is immediately encrypted
+			* Log file is created at first run of the script and is immediately encrypted
 		- Rewrote all of the functions requiring the invoke-command to properly make future troubleshooting easier
-			- Most all of the functions now use a template (for the most part) that makes modification easier if required
+			* Most all of the functions now use a template (for the most part) that makes modification easier if required
 		- Corrected error handling actions (stop instead of continue)
 		- Rewrote Job handling so it makes more sense
 		- Added a function to change passswords on existing Scheduled Tasks (needs additional testing)
@@ -161,13 +161,13 @@ function LoggerLee() {
             $bgcolor = "blue";
 				}
 		"success" 	{		
-			$color = "Green";
+		$color = "Green";
             $bgcolor = "DarkBlue";
-					}
+				}
 		"low"		{
-			$color = "DarkGray";
-			$bgcolor = "Darkblue";
-					}
+		$color = "DarkGray";
+		$bgcolor = "Darkblue";
+				}
     }
     Switch ($linebreak)
     {
@@ -235,7 +235,7 @@ function Get-Accounts
 	{
 		LoggerLee "`n`nBuilding list of AD accounts...`n`n" info
 		if($Global:accounts)
-			{$Global:accounts = $null}
+		{$Global:accounts = $null}
 		
 		Start-Sleep 5
 		
@@ -254,19 +254,19 @@ function WaitForJob([string]$jobName, [string]$jobState)
 
 	do
 	{
-		Start-Sleep 1
-		Write-Host -foregroundcolor DarkGray -NoNewline "."
+	Start-Sleep 1
+	Write-Host -foregroundcolor DarkGray -NoNewline "."
         $jobstatus = get-job -name $jobName 
 	}
         
 	while ($jobstatus.State -ne $jobState)
-    Write-Host " "
-    Write-Host " "
+    	Write-Host " "
+    	Write-Host " "
 
 	#Write-Host -foregroundcolor DarkGray -NoNewLine " The job $jobName is "
 	#Write-Host -foregroundcolor Gray $jobState
 	
-    #LoggerLee " The background job is " low nonewline
+   	#LoggerLee " The background job is " low nonewline
 	#LoggerLee "$jobState`n" low
 }
 
@@ -298,7 +298,7 @@ foreach ($system in $SPServers)
                   
             Try
                     {
-			            $result.message = "Remote Access successful on $Using:system`n"
+			$result.message = "Remote Access successful on $Using:system`n"
                         Write-Output $result.message -ErrorAction stop
                         $result.success = $true
                     }
@@ -363,12 +363,12 @@ foreach ($sc in $SiteCollections)
 
         Catch
             { 
-              LoggerLee -Text "Cannot lock site collection: $sc" Error;
-			  LoggerLee -Text "Please check the logs for details." Error;
-			  LoggerLee $_.Exception.Message Error 
+              	LoggerLee -Text "Cannot lock site collection: $sc" Error;
+		LoggerLee -Text "Please check the logs for details." Error;
+		LoggerLee $_.Exception.Message Error 
             }			  
     }
-		#Pause
+		
 }
 
 ###########################################################
@@ -392,10 +392,10 @@ foreach ($sc in $SiteCollections)
             }
 
         Catch
-			{ 	LoggerLee "Cannot Unlock site collection: $sc" Error;
-				LoggerLee "Please check the logs for details" Error;
-				LoggerLee $_.Exception.Message Error
-			}
+		{ 	LoggerLee "Cannot Unlock site collection: $sc" Error;
+			LoggerLee "Please check the logs for details" Error;
+			LoggerLee $_.Exception.Message Error
+		}
     }
 LoggerLee "`nTask Completed.`n`n" Info
 #Pause
@@ -420,15 +420,15 @@ $SPServers = $SPServers | Where-Object {$_ -ne $env:computername}
 foreach ($server in $SPServers) {
 Try 	
         {
-			LoggerLee "Restarting $server" Info;
-            restart-computer -computername $server -ErrorAction stop ;
-            LoggerLee "$server successfully restarted" success
-			Start-Sleep -s 2
+		LoggerLee "Restarting $server" Info;
+            	restart-computer -computername $server -ErrorAction stop ;
+            	LoggerLee "$server successfully restarted" success
+		Start-Sleep -s 2
 		}
 Catch 	
-        {
+        	{
 			LoggerLee "Unable to restart $server. Investigate and restart manually asap!" Error;
-            $restarterror1 = "$_.Exception.Message";
+            		$restarterror1 = "$_.Exception.Message";
 			LoggerLee -text $restarterror1 -LogType Error;
 			Pause
 		}
@@ -650,10 +650,10 @@ Import-Module WebAdministration
 
 								Try 
 									 {
-                                        $result.message += "Attempting start of $AppPool...`n";    
-										(Start-WebAppPool -ErrorAction Stop -Name "$AppPool");
-										$result.message += "Completed successfully!`n`n";
-							            $result.success = $true 								
+                                        				$result.message += "Attempting start of $AppPool...`n";    
+									(Start-WebAppPool -ErrorAction Stop -Name "$AppPool");
+									$result.message += "Completed successfully!`n`n";
+							          	 $result.success = $true 								
 									  }
 
 								 Catch
