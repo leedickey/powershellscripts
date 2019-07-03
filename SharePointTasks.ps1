@@ -8,14 +8,19 @@ Changes account passwords using the provided CSV (inputfile), restarts the farm 
 
 .NOTES
 Author: Lee Dickey 
-Date: 24 June 2019
-Version: 3.0
+Date: 26 June 2019
+Version: 3.1
+
+V 3.1 06/26/2019
+		- Fixed a bug with one function not working due to a -WhatIf left behind after development (whoops!)
+		- Minor text fixes for easier log reading
+		- Fixed bug with the log not getting created and encrypted on first run of the script 
 
 V 3.0 06/24/2019 -COMPLETE REWRITE-		
 		- Added logging function to both capture a log and display to the host (LoggerLee)
-			* Log file is created at first run of the script and is immediately encrypted
+			- Log file is created at first run of the script and is immediately encrypted
 		- Rewrote all of the functions requiring the invoke-command to properly make future troubleshooting easier
-			* Most all of the functions now use a template (for the most part) that makes modification easier if required
+			- Most all of the functions now use a template (for the most part) that makes modification easier if required
 		- Corrected error handling actions (stop instead of continue)
 		- Rewrote Job handling so it makes more sense
 		- Added a function to change passswords on existing Scheduled Tasks (needs additional testing)
@@ -121,8 +126,7 @@ If (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Break
 } ###############################################
 
-LoggerLee -text "Logfile Created $logtime`n" -LogType Info -linebreak newline
-Cipher /E $logfile | out-null
+
 
 
 ### Add Snappin
@@ -161,13 +165,13 @@ function LoggerLee() {
             $bgcolor = "blue";
 				}
 		"success" 	{		
-		$color = "Green";
+			$color = "Green";
             $bgcolor = "DarkBlue";
-				}
+					}
 		"low"		{
-		$color = "DarkGray";
-		$bgcolor = "Darkblue";
-				}
+			$color = "DarkGray";
+			$bgcolor = "Darkblue";
+					}
     }
     Switch ($linebreak)
     {
@@ -191,6 +195,9 @@ function LoggerLee() {
 		write-host "$Text" -ForegroundColor $color -BackgroundColor $bgcolor -nonewline
 		if ($linebreak -eq "newline") {write-host ""} }    
 }  
+
+LoggerLee -text "Logfile Created $logtime`n" -LogType Info -linebreak newline
+Cipher /E $logfile | out-null
 
 
 ##################################################################
@@ -235,7 +242,7 @@ function Get-Accounts
 	{
 		LoggerLee "`n`nBuilding list of AD accounts...`n`n" info
 		if($Global:accounts)
-		{$Global:accounts = $null}
+			{$Global:accounts = $null}
 		
 		Start-Sleep 5
 		
@@ -254,19 +261,19 @@ function WaitForJob([string]$jobName, [string]$jobState)
 
 	do
 	{
-	Start-Sleep 1
-	Write-Host -foregroundcolor DarkGray -NoNewline "."
+		Start-Sleep 1
+		Write-Host -foregroundcolor DarkGray -NoNewline "."
         $jobstatus = get-job -name $jobName 
 	}
         
 	while ($jobstatus.State -ne $jobState)
-    	Write-Host " "
-    	Write-Host " "
+    Write-Host " "
+    Write-Host " "
 
 	#Write-Host -foregroundcolor DarkGray -NoNewLine " The job $jobName is "
 	#Write-Host -foregroundcolor Gray $jobState
 	
-   	#LoggerLee " The background job is " low nonewline
+    #LoggerLee " The background job is " low nonewline
 	#LoggerLee "$jobState`n" low
 }
 
@@ -277,6 +284,7 @@ function WaitForJob([string]$jobName, [string]$jobState)
 function WinRMVerify
 {
 remove-job *
+LoggerLee "`n`nVerifying the script can access each of the servers to perform remote actions....`n`n" info
 
 ###*****************************************************************************************###
 ### Checks all of the servers to ensure the invoke-command will work. Most everything else 
@@ -285,6 +293,7 @@ remove-job *
 foreach ($system in $SPServers) 
 {
 	$SessionOption = New-PSSessionOption -IncludePortInSPN
+
 	Try 
 		{
 		    Invoke-Command -ComputerName $system -SessionOption $SessionOption -ErrorAction Stop -ScriptBlock  {
@@ -298,7 +307,7 @@ foreach ($system in $SPServers)
                   
             Try
                     {
-			$result.message = "Remote Access successful on $Using:system`n"
+			            $result.message = "Remote Access successful on $Using:system`n"
                         Write-Output $result.message -ErrorAction stop
                         $result.success = $true
                     }
@@ -314,7 +323,8 @@ $result
 }
 Catch { 
         LoggerLee "Could not invoke a remote connection to $server`n" warning; 
-        LoggerLee "$_.Exception.Message" error        
+        LoggerLee "$_.Exception.Message" error;
+		exit	
       }
 } 
 	#Start of Jobs retrieval
@@ -363,12 +373,12 @@ foreach ($sc in $SiteCollections)
 
         Catch
             { 
-              	LoggerLee -Text "Cannot lock site collection: $sc" Error;
-		LoggerLee -Text "Please check the logs for details." Error;
-		LoggerLee $_.Exception.Message Error 
+              LoggerLee -Text "Cannot lock site collection: $sc" Error;
+			  LoggerLee -Text "Please check the logs for details." Error;
+			  LoggerLee $_.Exception.Message Error 
             }			  
     }
-		
+		#Pause
 }
 
 ###########################################################
@@ -392,10 +402,10 @@ foreach ($sc in $SiteCollections)
             }
 
         Catch
-		{ 	LoggerLee "Cannot Unlock site collection: $sc" Error;
-			LoggerLee "Please check the logs for details" Error;
-			LoggerLee $_.Exception.Message Error
-		}
+			{ 	LoggerLee "Cannot Unlock site collection: $sc" Error;
+				LoggerLee "Please check the logs for details" Error;
+				LoggerLee $_.Exception.Message Error
+			}
     }
 LoggerLee "`nTask Completed.`n`n" Info
 #Pause
@@ -420,15 +430,15 @@ $SPServers = $SPServers | Where-Object {$_ -ne $env:computername}
 foreach ($server in $SPServers) {
 Try 	
         {
-		LoggerLee "Restarting $server" Info;
-            	restart-computer -computername $server -ErrorAction stop ;
-            	LoggerLee "$server successfully restarted" success
-		Start-Sleep -s 2
+			LoggerLee "Restarting $server..." Info;
+            restart-computer -computername $server -ErrorAction stop ;
+            LoggerLee "$server successfully restarted" success
+			Start-Sleep -s 2
 		}
 Catch 	
-        	{
+        {
 			LoggerLee "Unable to restart $server. Investigate and restart manually asap!" Error;
-            		$restarterror1 = "$_.Exception.Message";
+            $restarterror1 = "$_.Exception.Message";
 			LoggerLee -text $restarterror1 -LogType Error;
 			Pause
 		}
@@ -441,7 +451,7 @@ Catch
 
 Try
 	{
-        LoggerLee "Restarting system $env:computername`n" Info
+        LoggerLee "`nRestarting system $env:computername...`n" Info
 		restart-computer -computername "$env:computername" -ErrorAction Stop;
         LoggerLee "$env:computername successfully restarted`n" Success       
 	}
@@ -517,8 +527,8 @@ $passwords | foreach {
 $newpwd1 = $_.NewPassword
 $username = $_.Username
 #$newpassword = ConvertTo-SecureString -String $newpwd1 -AsPlainText -Force
-LoggerLee -text "`n`n`nUpdating App Pool Passwords for the account: " info -linebreak nonewline
-LoggerLee -text " $username`n" info
+LoggerLee -text "`n`nUpdating App Pool Passwords for the account: " info -linebreak nonewline
+LoggerLee -text " $username...`n" info
 Foreach ($server in $SPServers)
 {
 Try {
@@ -539,7 +549,7 @@ Import-Module WebAdministration
   $Pools = $applicationPools.name
 	if($applicationPools) 
         {
-            $result.message += "`n`nAppPools using the $Using:username account are being updated on $Using:server`n"      
+            $result.message += "`nAppPools using the $Using:username account are being updated on $Using:server...`n"      
         		 
 			foreach($pool in $applicationPools)
 			   {
@@ -551,8 +561,8 @@ Import-Module WebAdministration
 							$pool.processModel.userName = "$un";
 							$pool.processModel.password = "$pw";
 							$pool.processModel.identityType = 3;
-							$result.message += "`nChanging password for $($pool.name) to $pw `n" ;
-							$pool | Set-Item -ErrorAction Stop -WhatIf; 							
+							$result.message += "`nChanging password for '$($pool.name)' to $pw... `n" ;
+							$pool | Set-Item -ErrorAction Stop; 							
                             $result.message += "Password changed successfully!`n`n";
 							$result.success = $true
                          }
@@ -568,7 +578,7 @@ Import-Module WebAdministration
 		}
 	else {
             $result.success = $true;
-            $result.message = "No App Pool password to update on $using:server with account $using:username`n"
+            $result.message = "No App Pool password to update on $using:server with account $using:username...`n"
          }	
 	 $result		
 	#Exit-PSSession	
@@ -650,10 +660,10 @@ Import-Module WebAdministration
 
 								Try 
 									 {
-                                        				$result.message += "Attempting start of $AppPool...`n";    
-									(Start-WebAppPool -ErrorAction Stop -Name "$AppPool");
-									$result.message += "Completed successfully!`n`n";
-							          	 $result.success = $true 								
+                                        $result.message += "Attempting start of '$AppPool'...`n";    
+										(Start-WebAppPool -ErrorAction Stop -Name "$AppPool");
+										$result.message += "Completed successfully!`n`n";
+							            $result.success = $true 								
 									  }
 
 								 Catch
@@ -734,7 +744,7 @@ Invoke-Command -ComputerName "$server" -SessionOption $SessionOption -ErrorActio
             Serv = $using:server
                } 
 
-$result.message += "Checking for services that use the account: $Using:username on $Using:server `n"
+$result.message += "Checking for services that use the account: $Using:username on $Using:server... `n"
 
 $WinServices = Get-CimInstance win32_service | Where {$_.StartName -eq "$Using:username"}
 
@@ -750,9 +760,9 @@ if($WinServices)
 						
 					Try
 						{   
-							$result.message += "Changing password for $($s.Name) to $Using:newpwd1 on $Using:server`n  ";
+							$result.message += "Changing password for '$($s.Name)' to $Using:newpwd1 on $Using:server...`n";
 							Invoke-CimMethod -ErrorAction stop -Name Change -Arguments @{StartPassword="$pass"} -Query "Select * from Win32_service where Name='$serv'" | out-file "c:\allowed\scripts\CIMresults.txt" ; #Verify a '0' status code in this file if necessary (0 means successful)	
-							$result.message += "Completed Successfully!`n`n";	
+							$result.message += "Completed Successfully!  `n`n";	
 							$result.success = $true 	
 						}
 						
@@ -768,7 +778,7 @@ if($WinServices)
 
 Else {
          $result.success = $true;
-         $result.message += "No Action to take on $using:server `n`n`n"
+         $result.message += "No Action to take on $using:server `n`n"
      }
 
 $result
@@ -863,7 +873,7 @@ foreach ($srv in $SPServers)
 				
 Else {
          $result.success = $true;
-         $result.message += "No Action to take on $using:srv `n`n`n"
+         $result.message += "No Action to take on $using:srv `n`n"
      }
 
 $result
@@ -1012,7 +1022,7 @@ if ($newpassword)
 {
 Try		{
 			# This assumes that the passwords are already changed in AD. 
-			LoggerLee -text “Changing SharePoint passwords for $username to $newpwd1`n” -logType info -linebreak newline
+			LoggerLee -text “`n`n`nChanging SharePoint passwords for $username to $newpwd1...” -logType info -linebreak newline
 			Set-SPManagedAccount -Identity $username -ExistingPassword $newpassword -Confirm:$false -UseExistingPassword:$true -ErrorAction Stop 
 			LoggerLee "Password Changed Successfully.`n" success
 		}
@@ -1020,7 +1030,7 @@ Try		{
 Catch 	{
 			LoggerLee "Error received updating the service account via Managed Accounts! Please review the logs and try again`n" warning;
 			LoggerLee "$_.Exception.Message" error
-			exit
+			#exit
 		}
 } # End If
 }
@@ -1475,12 +1485,12 @@ Try {
          
         if($WinServices)
                 {  
-					$result.message += "`n$Using:srv is using the following:`n"
+					$result.message += "`n$Using:srv is using the following: `n"
 					foreach ($srvc in $WinServices)	
 						{
 							$service = $srvc.DisplayName;
 							$svc = $srvc.Name;
-							$result.message += "`nFound $service using the account $Using:username `n";
+							$result.message += "`nFound $service using the account $Using:username`n";
                             $result.success = $true     					                   
 						}				
 			    }	
@@ -1661,7 +1671,7 @@ if (($ChangePasswords -eq 'yes') -or ($ChangePasswords -eq 'y'))
 		SQLChanges
 
 		#Re-acquire accounts for main system
-		Get-Accounts
+		#Get-Accounts
 
 		# Update Windows Services
 		Set-WindowsServicesCreds
