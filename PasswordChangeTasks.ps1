@@ -19,7 +19,7 @@ Changes account passwords using the provided CSV (inputfile), restarts the serve
 		-	Powershell 3.0 or higher
 		-	WinRM must be enabled and remote Powershell must also be enabled
 			- Check if WinRM is running by using this PowerShell command as admin: get-service winrm
-				- If not running, run the following PowerShell command as admin: Enable-PSRemoting –force
+				- If not running, run the following PowerShell command as admin: Enable-PSRemoting â€“force
 			- Check firewall and make sure the following firewall rules are open on the server using the 'Windows Firewall with Advanced Security'
 				* Windows Remote Management - Compatibility Mode (HttP-IncludePortInSPN)
 				* Window Remote Management (HTPP-In)
@@ -36,7 +36,7 @@ Changes account passwords using the provided CSV (inputfile), restarts the serve
 	
 	
 .NOTES
-Author: Lee Dickey (Lee.A.Dickey@uscg.mil) x2673
+Author: Lee Dickey 
 Date: 02 May 2018
 Version: 3.0
 
@@ -621,7 +621,7 @@ else
 	}
 
 #Stop-Transcript #Stops the current log file process
-					#(Get-Item –Path $Logfile).Encrypt() # Broken on Prod for some reason
+					#(Get-Item â€“Path $Logfile).Encrypt() # Broken on Prod for some reason
 #cipher /E $logfile #Encrypts the log file for the user running this script only. 
 }
  
