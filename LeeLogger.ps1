@@ -61,7 +61,7 @@ function LoggerLee() {
 	
 	else
 	{	Write-Output "`n >> $LogTime - $Text" | out-file $logfile -Append;
-		write-host "$Text" -ForegroundColor $color -BackgroundColor $bgcolor -nonewline
+		write-host "$Text" -ForegroundColor $color -BackgroundColor $bgcolor
 		if ($linebreak -eq "newline") {write-host ""}     
 		if (@linebreak -eq "doubleline") {write-host "`n`n}
 	}	
