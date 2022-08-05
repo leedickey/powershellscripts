@@ -42,7 +42,7 @@ function LoggerLee() {
     Switch ($linebreak)
     {
         "nonewline" {
-            $nobreak = "$null";            
+            $nobreak = "-nonewline";            
                     }
         "newline" {
             $onebreak = "`n";    
