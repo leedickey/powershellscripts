@@ -42,11 +42,14 @@ function LoggerLee() {
     Switch ($linebreak)
     {
         "nonewline" {
-            $nobreak = "-NoNewLine";            
+            $nobreak = "$null";            
                     }
         "newline" {
-            $nobreak = "";    
+            $onebreak = "`n";    
                     }    
+	"doubleline" {
+	    $twobreak = "`n`n";
+   		     }		    
   }       
 	
     $LogTime = get-date -Format g
@@ -59,5 +62,7 @@ function LoggerLee() {
 	else
 	{	Write-Output "`n >> $LogTime - $Text" | out-file $logfile -Append;
 		write-host "$Text" -ForegroundColor $color -BackgroundColor $bgcolor -nonewline
-		if ($linebreak -eq "newline") {write-host ""} }    
+		if ($linebreak -eq "newline") {write-host ""}     
+		if (@linebreak -eq "doubleline") {write-host "`n`n}
+	}	
 }  
