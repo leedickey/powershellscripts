@@ -5,7 +5,7 @@
 Requirements: Log file path set for variable $logfile
 Usage:  Generates output for both the console and for a log file
 Example: LoggerLee -Text "error message or $ErrorMsg" -Logtype "error"
-Author(s): Lee Dickey & Jason Radcliff
+Author(s): Lee Dickey
 
 #>
 function LoggerLee() {
