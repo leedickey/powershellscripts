@@ -17,7 +17,7 @@ function LoggerLee() {
 
         [ValidateSet("newline","nonewline")][string]$linebreak = "newline",
 
-        [string]$logfile = "c:\log_" + (Get-Date -UFormat %Y-%m-%d_%H-%m-%S) + ".log"
+        [string]$logfile = "c:\log_" + (Get-Date -UFormat %Y-%m-%d) + ".log"
 			)
 
     Switch ($logType)
@@ -63,7 +63,5 @@ function LoggerLee() {
 	else
 	{	Write-Output "`n >> $LogTime - $Text" | out-file $logfile -Append;
 		write-host "$Text" -ForegroundColor $color -BackgroundColor $bgcolor -nonewline
-		if ($linebreak -eq "newline") {write-host ""} } 
-
-    Write-Output "Creating Log File" > $logfile   
+		if ($linebreak -eq "newline") {write-host ""} }        
 }  
