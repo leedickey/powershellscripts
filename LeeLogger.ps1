@@ -8,12 +8,16 @@ Example: LoggerLee -Text "error message or $ErrorMsg" -Logtype "error"
 Author(s): Lee Dickey
 
 #>
-function LoggerLee() {
+function LoggerLee() {   
     [CmdletBinding()]
     param 	(
         [parameter(Mandatory=$True)]  [String]$text,
+
         [ValidateSet("low","info","warning","error","success")][string]$logType = "info",
-        [ValidateSet("newline","nonewline")][string]$linebreak = "newline"         
+
+        [ValidateSet("newline","nonewline")][string]$linebreak = "newline",
+
+        [string]$logfile = "c:\log_" + (Get-Date -UFormat %Y-%m-%d_%H-%m-%S) + ".log"
 			)
 
     Switch ($logType)
@@ -42,14 +46,11 @@ function LoggerLee() {
     Switch ($linebreak)
     {
         "nonewline" {
-            $nobreak = "-nonewline";            
+            $nobreak = "-NoNewLine";            
                     }
         "newline" {
-            $onebreak = "`n";    
+            $nobreak = "";    
                     }    
-	"doubleline" {
-	    $twobreak = "`n`n";
-   		     }		    
   }       
 	
     $LogTime = get-date -Format g
@@ -61,8 +62,8 @@ function LoggerLee() {
 	
 	else
 	{	Write-Output "`n >> $LogTime - $Text" | out-file $logfile -Append;
-		write-host "$Text" -ForegroundColor $color -BackgroundColor $bgcolor
-		if ($linebreak -eq "newline") {write-host ""}     
-		if (@linebreak -eq "doubleline") {write-host "`n`n}
-	}	
+		write-host "$Text" -ForegroundColor $color -BackgroundColor $bgcolor -nonewline
+		if ($linebreak -eq "newline") {write-host ""} } 
+
+    Write-Output "Creating Log File" > $logfile   
 }  
