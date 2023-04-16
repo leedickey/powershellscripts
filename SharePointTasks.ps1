@@ -4,12 +4,16 @@ Performs multiple tasks for the SharePoint Farm via a menu.
 .DESCRIPTION
 Changes account passwords using the provided CSV (inputfile), restarts the farm and other tasks.
 .EXAMPLE
-.\SharePoint2016Tasks.ps1 
+.\SharePoint2016Tasks.ps1
 
 .NOTES
 Author: Lee Dickey 
 Date: 26 June 2019
 Version: 3.1
+
+V3.2 04/16/2023
+		- Added proper Parameter use for the most common configuration variables
+		- To do: Possible refactor to pnpPowershell?
 
 V 3.1 06/26/2019
 		- Fixed a bug with one function not working due to a -WhatIf left behind after development (whoops!)
@@ -100,25 +104,24 @@ V 1.0:
 							setspn -s HTTPS/Server-Long-Name-001-Is-Very-Long-:5986 Server-Account-Name-01	
 #>
 
+######################################
+### 		Parameters             ###
+######################################
 
-### Parameters that should only be changed if absolutely necessary ###
-# Needs to be cleaned up. Not needed as Parameters.
-[cmdletbinding()]
-param(
-[string] $Global:InputFile = "c:\Allowed\Scripts\accounts.csv",
-[switch] $newPasswords = $false)
-
-## Set the TimeOut limit in seconds for the background jobs. 60-120 seconds does not seem to be long enough in some environments
-$JobTimeout = '300'
-
-#get the date and time for log file creation
-$logtime = get-date -format yyyy-MM-dd_HH-mm-ss
-#Set the Log file location. 
-$Global:Logfile = "c:\Allowed\Scripts\SharePointTaskLog_$logtime.log"
+	[cmdletbinding()]
+	param	(
+		# The default input file containing the accounts and passwords
+		[string] $Global:InputFile = "c:\Scripts\accounts.csv",
+		[string]$logfile = "c:\SharePointTaskLog_" + (Get-Date -UFormat %Y-%m-%d) + ".log",
+		# Set the TimeOut limit in seconds for the background jobs. 60-120 seconds does not seem to be long enough in some environments
+		[string] $JobTimeout = '300'		
+			) 
+			
 
 ################################################## 
-# Check for Admin Privileges
+### 		Check for Admin Privileges		   ###
 ##################################################
+
 If (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(`
     [Security.Principal.WindowsBuiltInRole] "Administrator"))
 {
@@ -132,16 +135,15 @@ If (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 ### Add Snappin
 Add-PSSnapin Microsoft.Sharepoint.Powershell
 
-####################################
-# Logging and Output Function
-####################################
+#####################################
+###	 Logging and Output Function  ###
+#####################################
 <#
 Requirements: Log file path set for variable $logfile
 Usage:  Generates output for both the console and for a log file
 Example: LoggerLee -Text "error message or $ErrorMsg" -Logtype "error"
-Author(s): Lee Dickey & Jason Radcliff
+Author(s): Lee Dickey #>
 
-#>
 function LoggerLee() {
     [CmdletBinding()]
     param 	(
@@ -184,8 +186,7 @@ function LoggerLee() {
   }       
 	
     $LogTime = get-date -Format g
-    #$logfile = "c:\allowed\scripts\AAATestingSTuff.log"
-        
+            
 	if ($logtype -eq "low")
 	{	write-host "$Text" -ForegroundColor $color -nonewline
 		if ($linebreak -eq "newline") {write-host ""}	}
